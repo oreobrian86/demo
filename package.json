@@ -1,0 +1,10 @@
+{
+  "name": "khanh-miu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KHÁNH MIU — game mèo ăn hạt multiplayer (Node.js + WebSocket)",
+  "main": "server/server.js",
+  "scripts": { "start": "node server/server.js", "test": "node test/server-test.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" }
+}

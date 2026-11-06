@@ -1,0 +1,9 @@
+# Render Blueprint: tạo web service miễn phí chạy server KHÁNH MIU (kiêm phục vụ index.html)
+services:
+  - type: web
+    name: khanh-miu
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
