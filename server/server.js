@@ -4,7 +4,7 @@ const http = require('http'), fs = require('fs'), path = require('path');
 const { WebSocketServer } = require('ws');
 const { Room, CFG } = require('./game');
 
-const TICK_MS = 50, MAX_ROOMS = 40, MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10, IDLE_ROOM_MS = 60000;
+const PROTOCOL = 2, TICK_MS = 50, MAX_ROOMS = 40, MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10, IDLE_ROOM_MS = 60000;
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const rooms = new Map(), ipCount = new Map();
 const cleanRoom = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
@@ -39,7 +39,8 @@ function start(port = process.env.PORT || 3000) {
     const ip = ipOf(req), n = (ipCount.get(ip) || 0) + 1;
     if (n > MAX_CONN_PER_IP) return ws.close(4429, 'too many');
     ipCount.set(ip, n);
-    ws.isAlive = true; ws.on('pong', () => ws.isAlive = true);
+    ws.lastPong = Date.now(); ws.pingAt = 0;
+    ws.on('pong', () => { const t = Date.now(); ws.lastPong = t; if (ws.pingAt && ws.player) { const r = t - ws.pingAt, p = ws.player; p.rtt = p.rtt ? p.rtt * .7 + r * .3 : r } }); // RTT do SERVER đo (client không thể khai man)
     let tokens = 100, lastRefill = Date.now();
 
     ws.on('message', raw => {
@@ -50,6 +51,7 @@ function start(port = process.env.PORT || 3000) {
       const p = ws.player, room = ws.room;
       if (m.t === 'join') {
         if (p) return;
+        if (m.v !== PROTOCOL) return (send(ws, { t: 'err', msg: 'Phiên bản game đã cũ. Hãy tải lại trang (Ctrl+F5) rồi vào lại.' }), ws.close());
         const code = cleanRoom(m.room) || 'PUBLIC';
         let r = rooms.get(code);
         if (!r) { if (rooms.size >= MAX_ROOMS) return (send(ws, { t: 'err', msg: 'Server đang quá tải phòng, thử lại sau.' }), ws.close()); r = new Room(code); rooms.set(code, r) }
@@ -69,10 +71,11 @@ function start(port = process.env.PORT || 3000) {
       if (!p || !room) return;
       if (m.t === 'in') {
         if (Number.isFinite(m.a)) p.inp.a = m.a; p.inp.d = m.d ? 1 : 0; p.inp.i = m.i ? 1 : 0; p.inp.at = now;
+        if (Number.isFinite(m.c)) p.inp.ct = Math.round(m.c); // mốc thời gian của client, chỉ dùng để client tự đối chiếu vị trí; server KHÔNG tin vào nó cho luật chơi
       } else if (m.t === 'spawn') {
         if (p.alive) return;
         room.spawn(p, { name: cleanName(m.name), bi: Number.isInteger(m.bi) && m.bi >= 0 && m.bi < 10 ? m.bi : p.bi, col: /^#[0-9a-fA-F]{6}$/.test(m.col) ? m.col : p.col });
-        send(ws, { t: 'spawned', you: [Math.round(p.x), Math.round(p.y), p.m] });
+        send(ws, { t: 'spawned', you: [Math.round(p.x), Math.round(p.y), p.kg, Math.round(p.en)] });
       } else if (m.t === 'leave') {
         ws.player = null; p.ws = null; room.removePlayer(p); ws.close();
       }
@@ -95,7 +98,7 @@ function start(port = process.env.PORT || 3000) {
       r.tick(dt, now);
     }
   }, TICK_MS);
-  const hb = setInterval(() => wss.clients.forEach(ws => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; ws.ping() }), 20000);
+  const hb = setInterval(() => { const t = Date.now(); wss.clients.forEach(ws => { if (t - ws.lastPong > 25000) return ws.terminate(); ws.pingAt = t; ws.ping() }) }, 2000);
   server.listen(port, () => { if (require.main === module) console.log(`KHÁNH MIU server chạy ở cổng ${server.address().port}`) });
   return { server, wss, rooms, stop() { clearInterval(loop); clearInterval(hb); wss.clients.forEach(c => c.terminate()); server.close() } };
 }

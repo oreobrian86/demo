@@ -15,8 +15,8 @@ const stat = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 't
   await pg.mouse.move(800, 300); await sleep(1200); await pg.click('#gear'); const x0 = await pg.evaluate(() => [me.x, me.y, bots[0].x, bots[0].y, S.t]); await sleep(1000);
   const x1 = await pg.evaluate(() => [me.x, me.y, bots[0].x, bots[0].y, S.t]); assert(x0.every((v, i) => v === x1[i])); ok('Offline + Settings: toàn bộ game tạm dừng (mèo, bot, đồng hồ đều đứng yên)');
   await pg.click('#resume'); await sleep(600); const x2 = await pg.evaluate(() => [me.x, S.t]); assert(x2[1] > x1[4]); ok('Offline: Resume chạy tiếp');
-  await pg.evaluate(() => { pates.push({ id: 99, x: me.x + 20, y: me.y, l: 50 }); }); const m0 = await pg.evaluate(() => me.m); await sleep(500);
-  const m1 = await pg.evaluate(() => ({ m: me.m, p: pates.length })); assert(m1.m > m0 + 5 && m1.p === 0); ok(`Offline: ăn pate tăng size ${m0.toFixed(1)} -> ${m1.m.toFixed(1)}`);
+  await pg.evaluate(() => { pates.push({ id: 99, x: me.x + 20, y: me.y, l: 50 }); }); const m0 = await pg.evaluate(() => me.kg); await sleep(500);
+  const m1 = await pg.evaluate(() => ({ m: me.kg, p: pates.length })); assert(m1.m > m0 + 5 && m1.p === 0); ok(`Offline: ăn pate tăng size ${m0.toFixed(1)} -> ${m1.m.toFixed(1)}`);
   await pg.click('#gear'); await pg.click('#tomenu'); await sleep(300); assert(await pg.evaluate(() => S.mode === 'menu' && bots.length === 7)); ok('Offline: Return to Main Menu');
   // --- cross-origin (GitHub Pages giả lập)
   const url = `http://127.0.0.1:${stat.address().port}/?server=ws://localhost:${SP}&room=XO`;

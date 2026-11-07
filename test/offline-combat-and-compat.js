@@ -1,0 +1,31 @@
+'use strict';
+// 1) Offline dùng cùng luật mới (kg, nuốt, dash/năng lượng)  2) Tương thích phiên bản frontend/backend khi chỉ cập nhật một bên.
+process.env.MAX_CONN_PER_IP = '100';
+const assert = require('assert'), http = require('http'), fs = require('fs'), path = require('path'), { spawn } = require('child_process'), { chromium } = require('playwright');
+const { start } = require('../server/server'); const sleep = ms => new Promise(r => setTimeout(r, ms)); let n = 0; const ok = m => { n++; console.log('  ✔', m) };
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html')); const oldHtml = fs.readFileSync('/tmp/v1/khanh-miu/index.html');
+const stat = (buf) => new Promise(r => { const s = http.createServer((q, p) => { p.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); p.end(buf) }).listen(0, '127.0.0.1', () => r(s)) });
+(async () => {
+  const b = await chromium.launch(); const errs = []; const srv = start(0), SP = srv.server.address().port;
+  const pg = await (await b.newContext({ viewport: { width: 900, height: 600 } })).newPage(); pg.on('pageerror', e => errs.push(e.message));
+  console.log('Offline: luật mới'); await pg.goto(`http://localhost:${SP}/`); await pg.click('#off'); await sleep(400);
+  assert(await pg.evaluate(() => !S.online && me.kg === 10 && /Cân nặng: 10\.0 kg/.test($('hudt').textContent) || /Cân nặng/.test($('hud').textContent))); ok('offline: mèo mới 10 kg, HUD hiển thị cân nặng + thanh thức ăn dự trữ');
+  await pg.evaluate(() => { bots.forEach(x => { x.alive = false; x.respawn = 9e9 }); me.kg = 60; me.x = 1500; me.y = 1500; const t = bots[0]; t.alive = true; t.kg = 20; t.x = 1500 + 10; t.y = 1500; t.ai.t = 99; window.__t = t });
+  await sleep(400); const r1 = await pg.evaluate(() => ({ kills: me.kills, alive: __t.alive, kg: me.kg, ghosts: ghosts.length, toast: $('toast').textContent })); assert(r1.kills === 1 && !r1.alive && r1.kg > 60); ok(`offline: người chơi 60kg nuốt bot 20kg (kills=${r1.kills}, ${r1.kg.toFixed(1)}kg, toast "${r1.toast}")`);
+  await pg.evaluate(() => { const t = bots[1]; t.alive = true; t.respawn = 0; t.kg = 18; t.x = me.x + 600; t.y = me.y; const u = bots[2]; u.alive = true; u.kg = 100; u.x = t.x + 8; u.y = t.y; t.ai.t = u.ai.t = 99; window.__u = u; window.__t2 = t });
+  await sleep(400); assert(await pg.evaluate(() => !__t2.alive && __u.kills === 1)); ok('offline: bot 100kg nuốt bot 18kg');
+  await pg.evaluate(() => { me.kg = 10; me.x = 3000; me.y = 3000; const u = bots[3]; u.alive = true; u.kg = 80; u.x = 3010; u.y = 3000; u.ai.t = 99; window.__me = me });
+  await pg.waitForFunction(() => S.mode === 'over', null, { timeout: 6000 }); ok('offline: bot nuốt người chơi -> Game Over');
+  await pg.click('#rs'); await sleep(300); await pg.evaluate(() => { bots.forEach(x => { x.alive = false; x.respawn = 9e9 }); me.x = 2000; me.y = 2000; me.ang = 0; food.forEach(f => { f.a = false; f.t = 1e9 }); mouse.has = true; mouse.x = innerWidth / 2 + 300; mouse.y = innerHeight / 2; mouse.down = true });
+  const e0 = await pg.evaluate(() => [me.en, me.kg]); await sleep(3000); const e1 = await pg.evaluate(() => [me.en, me.kg, me.dashing]); assert(e1[0] < e0[0] - 30 && e1[1] < e0[1]); ok(`offline: chạy nhanh 3s, thức ăn dự trữ ${e0[0]} → ${e1[0].toFixed(0)}, cân nặng ${e0[1]} → ${e1[1].toFixed(2)} kg`);
+  await sleep(4000); const e2 = await pg.evaluate(() => [me.en, me.tired, me.dashing]); assert(e2[1] === true && e2[2] === false); ok('offline: hết thức ăn dự trữ thì không thể tiếp tục chạy nhanh dù vẫn giữ phím');
+  console.log('Tương thích phiên bản');
+  const s1 = await stat(html), s2 = await stat(oldHtml);
+  const v1srv = spawn('node', ['server/server.js'], { cwd: '/tmp/v1/khanh-miu', env: Object.assign({}, process.env, { PORT: '0' }) }); const v1port = await new Promise(res => v1srv.stdout.on('data', d => { const m = /cổng (\d+)/.exec(String(d)); if (m) res(+m[1]) }));
+  const c1 = await (await b.newContext()).newPage(); await c1.goto(`http://127.0.0.1:${s1.address().port}/?server=ws://localhost:${v1port}&room=V`); await c1.fill('#nm', 'New'); await c1.click('#play'); await sleep(2500);
+  const m1 = await c1.evaluate(() => $('net').textContent); assert(/phiên bản cũ/.test(m1) && await c1.evaluate(() => !S.online)); ok('frontend MỚI + backend CŨ: không vào game hỏng, hiện "' + m1 + '"');
+  const c2 = await (await b.newContext()).newPage(); await c2.goto(`http://127.0.0.1:${s2.address().port}/?server=ws://localhost:${SP}&room=V`); await c2.fill('#nm', 'Old'); await c2.click('#play'); await sleep(2500);
+  const m2 = await c2.evaluate(() => $('net').textContent); assert(/phiên bản game đã cũ/i.test(m2) || /cũ/.test(m2)); ok('frontend CŨ (đang cache) + backend MỚI: bị từ chối rõ ràng, hiện "' + m2 + '"');
+  assert(errs.length === 0, errs.join()); v1srv.kill(); await b.close(); s1.close(); s2.close(); srv.stop(); console.log(`\n${n} kiểm tra đạt.`); process.exit(0);
+})().catch(e => { console.error('✘ FAIL:', e.message, (e.stack || '').split('\n')[1]); process.exit(1) });
+setTimeout(() => { console.error('TIMEOUT'); process.exit(2) }, 100000).unref();

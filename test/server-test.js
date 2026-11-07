@@ -11,7 +11,7 @@ function client(name, room, pid = hex()) {
   const c = { name, pid, msgs: [], snaps: [], events: [], food: null, meta: {}, ws: null };
   c.connect = () => new Promise(res => {
     c.ws = new WebSocket('ws://localhost:' + port());
-    c.ws.on('open', () => c.ws.send(JSON.stringify({ t: 'join', room, pid: c.pid, name, bi: 1, col: '#ff8800' })));
+    c.ws.on('open', () => c.ws.send(JSON.stringify({ t: 'join', v: 2, room, pid: c.pid, name, bi: 1, col: '#ff8800' })));
     c.ws.on('message', d => { const m = JSON.parse(d); c.msgs.push(m);
       if (m.t === 'welcome') { c.welcome = m; c.id = m.id; c.meta = m.meta; c.off = new Set(m.off); res(c) }
       if (m.t === 'meta') c.meta = m.ents;
@@ -69,28 +69,29 @@ let pass = 0; const ok = (n) => { pass++; console.log('  ✔', n) };
   const bp = room.byPid.get(B.pid); bp.ws.close(); await sleep(200); bp.disc = Date.now() - 11000; await sleep(200);
   assert(!A.snap.p.some(a => a[0] === B.id)); ok('B mất kết nối > 10s -> mèo bị xoá khỏi phòng');
   const sock = []; for (let i = 0; i < 12; i++) sock.push(await client('P' + i, 'FULL').connect());
-  const over = await new Promise(res => { const w = new WebSocket('ws://localhost:' + port()); w.on('open', () => w.send(JSON.stringify({ t: 'join', room: 'FULL', pid: hex(), name: 'X' }))); w.on('message', d => { const m = JSON.parse(d); if (m.t === 'err') res(m) }) });
+  const over = await new Promise(res => { const w = new WebSocket('ws://localhost:' + port()); w.on('open', () => w.send(JSON.stringify({ t: 'join', v: 2, room: 'FULL', pid: hex(), name: 'X' }))); w.on('message', d => { const m = JSON.parse(d); if (m.t === 'err') res(m) }) });
   assert(/đủ 12/.test(over.msg)); ok('Người thứ 13 bị từ chối: ' + over.msg);
 
   console.log('Test 6: tấn công & tiêu diệt (server phân xử; chỉ sắp đặt trước vị trí/kích thước)');
   const k = client('Killer', 'KILL'), v = client('Victim', 'KILL'); await k.connect(); await v.connect(); await sleep(150);
   const kr = srv.rooms.get('KILL'), kp = kr.players.get(k.id), vp = kr.players.get(v.id);
   kr.bots.forEach(b => { b.alive = false; b.respawn = 999 });
-  kp.m = 60; kp.x = 2000; kp.y = 2000; vp.m = 12; vp.x = 2010; vp.y = 2000;
-  await sleep(250);
+  kp.inp.i = vp.inp.i = 1; // đứng yên: lịch sử vị trí dùng cho bù trễ cần vài tick để bắt kịp việc dịch chuyển tức thì của test
+  kp.kg = 60; kp.x = 2000; kp.y = 2000; vp.kg = 12; vp.x = 2010; vp.y = 2000;
+  await sleep(450);
   const kev = v.events.find(e => e[0] === 'k'); assert(kev && kev[1] === k.id && kev[2] === v.id, 'Victim nhận sự kiện bị hạ');
   assert(k.events.some(e => e[0] === 'k' && e[2] === v.id), 'Killer nhận sự kiện kill');
   assert(!k.snap.p.some(a => a[0] === v.id) && !v.snap.p.some(a => a[0] === v.id), 'Victim biến mất khỏi snapshot của cả hai');
   const drops = k.events.filter(e => e[0] === 'd+'), dropsV = v.events.filter(e => e[0] === 'd+');
   assert(drops.length > 4 && JSON.stringify(drops) === JSON.stringify(dropsV)); ok(`Kill đồng bộ; ${drops.length} hạt rơi ra ở CÙNG vị trí với cả hai client`);
-  assert(k.me()[7] === 1 && k.me()[6] > 0); ok('Điểm & kill của Killer: score=' + k.me()[6] + ', kills=' + k.me()[7]);
+  assert(k.me()[6] === 1 && k.me()[3] > 60); ok('Cân nặng & kill của Killer: ' + k.me()[3] + ' kg, đã nuốt ' + k.me()[6]);
   v.ws.send(JSON.stringify({ t: 'spawn', name: 'Victim', bi: 0, col: '#112233' })); await sleep(250);
   assert(v.me() && v.me()[3] === 10); ok('Victim hồi sinh qua yêu cầu spawn');
 
   console.log('Test 7: PATE đồng bộ & không thể nhận thưởng 2 lần');
   const p1 = client('P1', 'PATE'), p2 = client('P2', 'PATE'); await p1.connect(); await p2.connect(); await sleep(150);
   const pr = srv.rooms.get('PATE'); pr.bots.forEach(b => { b.alive = false; b.respawn = 999 });
-  const a = pr.players.get(p1.id), b = pr.players.get(p2.id); a.x = 1000; a.y = 1000; b.x = 1004; b.y = 1000; a.m = b.m = 20; a.ws.inp = null;
+  const a = pr.players.get(p1.id), b = pr.players.get(p2.id); a.x = 1000; a.y = 1000; b.x = 1004; b.y = 1000; a.kg = b.kg = 20; a.ws.inp = null;
   a.inp.i = b.inp.i = 1; // đứng yên để so sánh công bằng
   const q = pr.spawnPate(1002, 1000); await sleep(200);
   assert(p1.events.some(e => e[0] === 'p+' && e[1] === q.id) && p2.events.some(e => e[0] === 'p+' && e[1] === q.id)); ok('Cả hai thấy pate xuất hiện cùng vị trí ' + q.x + ',' + q.y);

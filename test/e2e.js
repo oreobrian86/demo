@@ -14,8 +14,8 @@ async function open(name) {
   await page.waitForFunction(() => S.online && me && me.alive, null, { timeout: 15000 });
   return { browser, page, errs, name };
 }
-const st = p => p.evaluate(() => ({ id: net.id, room: S.room, me: { x: me.x, y: me.y, m: me.m, sc: me.sc, alive: me.alive }, mode: S.mode, paused: S.paused,
-  humans: Object.values(peers).filter(o => o.peer).map(o => ({ id: o.id, n: o.name, x: o.x, y: o.y, m: o.m })),
+const st = p => p.evaluate(() => ({ id: net.id, room: S.room, me: { x: me.x, y: me.y, kg: me.kg, en: me.en, alive: me.alive }, mode: S.mode, paused: S.paused,
+  humans: Object.values(peers).filter(o => o.peer).map(o => ({ id: o.id, n: o.name, x: o.x, y: o.y, kg: o.kg })),
   bots: Object.values(peers).filter(o => !o.peer).map(o => ({ id: o.id, n: o.name, x: o.x, y: o.y })),
   eaten: food.map((f, i) => f.a ? -1 : i).filter(i => i >= 0), drops: drops.map(d => [d.id, d.x, d.y]).sort((a, b) => a[0] - b[0]),
   pates: pates.map(p => [p.id, p.x, p.y]), lb: board().slice(0, 6).map(x => [x.n, x.s]) }));
@@ -40,10 +40,10 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   assert(Math.max(...botDiff) < 80, 'bot lệch ' + Math.max(...botDiff)); ok('Vị trí 7 bot giống nhau trên hai màn hình (lệch tối đa ' + Math.max(...botDiff).toFixed(0) + 'px)');
 
   // chơi thật: để Alice tự đuổi theo hạt gần nhất cho tới khi ăn được
-  await autopilot(A.page, 'food'); await A.page.waitForFunction(() => me.m > 10.5, null, { timeout: 40000 }); await autopilot(A.page, null);
+  await autopilot(A.page, 'food'); await A.page.waitForFunction(() => me.kg > 10.5, null, { timeout: 40000 }); await autopilot(A.page, null);
   await sleep(600); a = await st(A.page); b = await st(B.page);
-  assert(a.me.m > 10.5, 'Alice ăn hạt'); const sym = a.eaten.filter(i => !b.eaten.includes(i)).concat(b.eaten.filter(i => !a.eaten.includes(i)));
-  assert(a.eaten.length > 0 && sym.length <= 2); ok(`Alice ăn hạt (size 10 -> ${a.me.m.toFixed(1)}); danh sách hạt đã biến mất: A=${a.eaten.length}, B=${b.eaten.length}, khác nhau ${sym.length}`);
+  assert(a.me.kg > 10.5, 'Alice ăn hạt'); const sym = a.eaten.filter(i => !b.eaten.includes(i)).concat(b.eaten.filter(i => !a.eaten.includes(i)));
+  assert(a.eaten.length > 0 && sym.length <= 2); ok(`Alice ăn hạt (size 10 -> ${a.me.kg.toFixed(1)}); danh sách hạt đã biến mất: A=${a.eaten.length}, B=${b.eaten.length}, khác nhau ${sym.length}`);
   const [la, lb2] = await Promise.all([st(A.page), st(B.page)]).then(r => r.map(x => new Map(x.lb))); // đọc đồng thời
   const names = [...la.keys()].filter(k => lb2.has(k)); const maxDiff = Math.max(...names.map(k => Math.abs(la.get(k) - lb2.get(k))));
   assert(names.length >= 4 && maxDiff <= 40); ok(`Bảng xếp hạng thống nhất: ${names.length} mèo có mặt ở cả hai bảng, điểm chênh tối đa ${maxDiff} (do hai lần đọc lệch vài ms)`);
@@ -51,7 +51,7 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   console.log('E2E: PATE');
   const room = srv.rooms.get('E2E'); const pl = [...room.players.values()].find(p => p.name === 'Alice');
   room.bots.forEach(x => { x.alive = false; x.respawn = 9999 });
-  const m0 = pl.m; const px = pl.x + 700 > 4000 ? pl.x - 700 : pl.x + 700, py = pl.y; room.spawnPate(px, py); await sleep(500);
+  const m0 = pl.kg; const px = pl.x + 700 > 4000 ? pl.x - 700 : pl.x + 700, py = pl.y; room.spawnPate(px, py); await sleep(500);
   a = await st(A.page); b = await st(B.page); assert(a.pates.length === 1 && b.pates.length === 1 && a.pates[0][1] === b.pates[0][1]); ok('Pate xuất hiện ở cùng vị trí trong cả hai trình duyệt: ' + a.pates[0].slice(1));
   pl.x = px - 40; pl.y = py; // đặt Alice ngay cạnh để ảnh chụp thấy nhãn PATE
   await sleep(150); const pateId = a.pates[0][0];
@@ -60,7 +60,7 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   await autopilot(A.page, 'pate');
   await B.page.waitForFunction(() => pates.length === 0, null, { timeout: 15000 });
   await autopilot(A.page, null); await sleep(300); a = await st(A.page); b = await st(B.page);
-  assert(a.pates.length === 0 && b.pates.length === 0 && a.me.m > m0 + 5); ok(`Alice ăn pate: biến mất ở cả hai, size ${m0.toFixed(1)} -> ${a.me.m.toFixed(1)} (server xác nhận)`);
+  assert(a.pates.length === 0 && b.pates.length === 0 && a.me.kg > m0 + 5); ok(`Alice ăn pate: biến mất ở cả hai, size ${m0.toFixed(1)} -> ${a.me.kg.toFixed(1)} (server xác nhận)`);
 
   console.log('E2E: Settings (mở khi đang online)');
   { const al = [...room.players.values()].find(p => p.name === 'Alice'), bo = [...room.players.values()].find(p => p.name === 'Bob'); bo.x = al.x > 2100 ? 300 : 3900; bo.y = al.y > 2100 ? 300 : 3900 } // tránh Alice (đang to hơn) vô tình ăn Bob
@@ -81,7 +81,7 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   await A.page.click('#play'); await A.page.waitForFunction(() => S.online && me && me.alive, null, { timeout: 15000 }); await sleep(600);
   const ra = [...room.players.values()].find(p => p.name === 'Alice'), rb = [...room.players.values()].find(p => p.name === 'Bob');
   for (const pg of [A.page, B.page]) await pg.evaluate(() => { window.__d = []; const o = onEv; onEv = function (ev) { if (ev[0] === 'd+') __d.push(ev.slice(1, 4)); return o(ev) } });
-  ra.m = 70; ra.x = 2000; ra.y = 2000; rb.m = 12; rb.x = 2000; rb.y = 2000; ra.ws && (ra.inp.i = 1); // sắp đặt tiền điều kiện; việc ăn/kill do server xử lý
+  ra.kg = 70; ra.x = 2000; ra.y = 2000; rb.kg = 12; rb.x = 2000; rb.y = 2000; ra.ws && (ra.inp.i = 1); // sắp đặt tiền điều kiện; việc ăn/kill do server xử lý
   await B.page.waitForFunction(() => !$('go').classList.contains('hide'), null, { timeout: 8000 }); await sleep(300);
   const go = await B.page.evaluate(() => $('gos').textContent); assert(/Alice/.test(go)); ok('Bob bị Alice hạ: màn Game Over hiện "' + go.slice(0, 40) + '…"');
   const [dA, dB] = await Promise.all([A.page, B.page].map(pg => pg.evaluate(() => __d)));
