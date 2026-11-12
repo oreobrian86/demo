@@ -19,8 +19,15 @@ console.log('Một kẻ săn duy nhất / nhiều mục tiêu');
   const done = new Set(); for (const [a, b] of sw2) if (a.alive && b.alive) { R.applySwallow(a, b); done.add(b) }
   assert(!B2.alive && C2.alive); ok('chuỗi A>B>C: kẻ nặng nhất xử lý trước, mồi đã bị nuốt không còn đi nuốt tiếp'); }
 { const A = cat(60, { x: 0, y: 0 }), P = cat(10, { x: 200, y: 0 }); assert.strictEqual(R.findSwallows([A, P]).length, 0);
-  assert.strictEqual(R.findSwallows([A, P], () => ({ x: 20, y: 0 })).length, 1); ok('bù trễ: posOf() tua lại vị trí mồi -> trúng khi vị trí cũ nằm trong tầm với'); }
+  assert.strictEqual(R.findSwallows([A, P], () => ({ x0: 20, y0: 0, x1: 20, y1: 0 })).length, 1); ok('bù trễ: track() tua lại quỹ đạo mồi -> trúng khi vị trí cũ nằm trong tầm với'); }
 
+console.log('Va chạm quét (swept): chạy nhanh không xuyên qua mồi');
+{ const reach = R.reachOf(cat(60), 10); const mk = (off, dx) => { const A = cat(60, { x: 120, y: 0, px: 0, py: 0 }), P = cat(10, { x: 60, y: off, px: 60, py: off }); return [A, P] };
+  let hit = 0, discrete = 0, N = 0; for (let off = 0; off < reach - 1; off += 1) { const [A, P] = mk(off); N++; if (R.findSwallows([A, P]).length) hit++; if (Math.hypot(A.x - P.x, A.y - P.y) <= reach || Math.hypot(A.px - P.x, A.py - P.y) <= reach) discrete++ }
+  assert.strictEqual(hit, N); assert(discrete < N); ok(`mèo lao 120px/tick qua mồi đứng yên: quét bắt ${hit}/${N} cú sượt trong tầm; kiểm tra rời rạc 2 đầu mút chỉ bắt ${discrete}/${N}`);
+  const [A2, P2] = mk(reach + 3); assert.strictEqual(R.findSwallows([A2, P2]).length, 0); ok('đi sượt xa hơn tầm với (+3px) thì không nuốt: không nuốt từ khoảng cách quá xa');
+  const A3 = cat(60, { x: 0, y: 0, px: 0, py: 0 }), P3 = cat(10, { x: 1500, y: 0, px: 1500, py: 0 }); assert.strictEqual(R.findSwallows([A3, P3]).length, 0); ok('mồi ở xa 1500px không bao giờ bị nuốt'); }
+{ const A = cat(60, { x: 100, y: 0, px: 100, py: 0 }), P = cat(10, { x: 100 + R.rad(60) + R.rad(10) - 4, y: 0 }); assert.strictEqual(R.findSwallows([A, P]).length, 0, 'chỉ chạm mép'); const P2 = cat(10, { x: 100 + R.rad(60) + R.rad(10) * .3 - 1, y: 0 }); assert.strictEqual(R.findSwallows([A, P2]).length, 1); ok('chạm đủ gần (mồi bị phủ ~1/3) là nuốt ngay, không cần đứng lại/di chuyển tới lui; mới chạm mép thì chưa'); }
 console.log('Cân nặng, giới hạn, ăn');
 { const a = cat(10), before = a.kg; const g = R.feed(a, 1); assert(a.kg > before && Math.abs(a.kg - before - g) < 1e-9); ok(`ăn 1 hạt: 10kg -> ${a.kg.toFixed(2)}kg`);
   const big = cat(249.9); R.feed(big, 50); assert.strictEqual(big.kg, C.MAX_KG); ok(`trần tăng trưởng ${C.MAX_KG}kg`);

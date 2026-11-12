@@ -2,25 +2,12 @@
 process.env.MAX_CONN_PER_IP = '100'; // mọi client test cùng IP loopback
 setTimeout(() => { console.error('TIMEOUT'); process.exit(2) }, 60000).unref();
 // Test giao thức: 3 client WebSocket độc lập kết nối tới server thật qua mạng loopback.
-const assert = require('assert'), WebSocket = require('ws');
+const assert = require('assert'), WebSocket = require('ws'), R = require('../shared/rules');
 const { start } = require('../server/server');
 const srv = start(0); const port = () => srv.server.address().port;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const hex = () => Array.from({ length: 24 }, () => '0123456789abcdef'[Math.random() * 16 | 0]).join('');
-function client(name, room, pid = hex()) {
-  const c = { name, pid, msgs: [], snaps: [], events: [], food: null, meta: {}, ws: null };
-  c.connect = () => new Promise(res => {
-    c.ws = new WebSocket('ws://localhost:' + port());
-    c.ws.on('open', () => c.ws.send(JSON.stringify({ t: 'join', v: 2, room, pid: c.pid, name, bi: 1, col: '#ff8800' })));
-    c.ws.on('message', d => { const m = JSON.parse(d); c.msgs.push(m);
-      if (m.t === 'welcome') { c.welcome = m; c.id = m.id; c.meta = m.meta; c.off = new Set(m.off); res(c) }
-      if (m.t === 'meta') c.meta = m.ents;
-      if (m.t === 's') { c.snap = m; c.snaps.push(m); for (const e of m.e) { c.events.push(e); if (e[0] === 'f-') c.off.add(e[1]); if (e[0] === 'f+') c.off.delete(e[1]) } } });
-  });
-  c.in = (a, d = 0, i = 0) => c.ws.send(JSON.stringify({ t: 'in', a, d, i }));
-  c.me = () => c.snap && c.snap.p.find(a => a[0] === c.id);
-  return c;
-}
+const { makeClient } = require('./lib/wsclient'); const client = (name, room, pid = hex()) => makeClient(port(), name, room, pid);
 let pass = 0; const ok = (n) => { pass++; console.log('  ✔', n) };
 (async () => {
   console.log('Test 1: cùng một thế giới');
@@ -36,8 +23,8 @@ let pass = 0; const ok = (n) => { pass++; console.log('  ✔', n) };
   console.log('Test 2: chuyển động & ăn thức ăn đồng bộ');
   const posA0 = A.me().slice(1, 3); A.in(0, 0, 0); await sleep(1000);
   const a1 = A.me(), b_view = B.snap.p.find(x => x[0] === A.id);
-  assert(Math.hypot(a1[1] - posA0[0], a1[2] - posA0[1]) > 100, 'A di chuyển'); assert.strictEqual(a1[1], b_view[1]); assert.strictEqual(a1[2], b_view[2]);
-  ok('A di chuyển, B thấy đúng cùng toạ độ (server chuẩn)');
+  assert(Math.hypot(a1[1] - posA0[0], a1[2] - posA0[1]) > 100, 'A di chuyển'); assert(Math.hypot(a1[1] - b_view[1], a1[2] - b_view[2]) < 60, 'lệch ' + Math.hypot(a1[1] - b_view[1], a1[2] - b_view[2]));
+  ok('A di chuyển, B thấy A ở cách ' + Math.hypot(a1[1] - b_view[1], a1[2] - b_view[2]).toFixed(0) + 'px so với nơi A tự thấy (lệch tối đa vài tick: mèo ở xa chỉ cập nhật 5 lần/giây)');
   // đưa A tới hạt gần nhất bằng input thật (chỉ gửi góc nhìn)
   const fl = A.welcome.food; let eatenIdx = -1;
   for (let t = 0; t < 400 && eatenIdx < 0; t++) {
@@ -58,7 +45,7 @@ let pass = 0; const ok = (n) => { pass++; console.log('  ✔', n) };
 
   console.log('Test 4: phòng tách biệt');
   const D = await client('Dan', 'OTHER').connect(); await sleep(200);
-  assert(!Object.values(D.meta).some(m => m[0] === 'Alice' || m[0] === 'Bob') && D.welcome.n === 1); ok('Phòng OTHER không thấy người của phòng T1');
+  assert(!Object.values(D.meta).some(m => m[0] === 'Alice' || m[0] === 'Bob') && D.welcome.players === 1); ok('Phòng OTHER không thấy người của phòng T1');
 
   console.log('Test 5: giới hạn phòng, thoát & kết nối lại');
   const room = srv.rooms.get('T1'), idleB = B.me()[1];
@@ -69,7 +56,7 @@ let pass = 0; const ok = (n) => { pass++; console.log('  ✔', n) };
   const bp = room.byPid.get(B.pid); bp.ws.close(); await sleep(200); bp.disc = Date.now() - 11000; await sleep(200);
   assert(!A.snap.p.some(a => a[0] === B.id)); ok('B mất kết nối > 10s -> mèo bị xoá khỏi phòng');
   const sock = []; for (let i = 0; i < 12; i++) sock.push(await client('P' + i, 'FULL').connect());
-  const over = await new Promise(res => { const w = new WebSocket('ws://localhost:' + port()); w.on('open', () => w.send(JSON.stringify({ t: 'join', v: 2, room: 'FULL', pid: hex(), name: 'X' }))); w.on('message', d => { const m = JSON.parse(d); if (m.t === 'err') res(m) }) });
+  const over = await new Promise(res => { const w = new WebSocket('ws://localhost:' + port()); w.on('open', () => w.send(JSON.stringify({ t: 'join', v: 3, room: 'FULL', pid: hex(), name: 'X' }))); w.on('message', d => { const m = JSON.parse(d); if (m.t === 'err') res(m) }) });
   assert(/đủ 12/.test(over.msg)); ok('Người thứ 13 bị từ chối: ' + over.msg);
 
   console.log('Test 6: tấn công & tiêu diệt (server phân xử; chỉ sắp đặt trước vị trí/kích thước)');

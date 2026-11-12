@@ -44,6 +44,7 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
 #enf{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ffb347,#ffe08a);transition:width .2s}
 #enw.low #enl{color:#ff9d9d}#enw.low #enf{background:#ff6b6b;animation:blk .45s infinite alternate}
 @keyframes blk{to{opacity:.35}}
+.seg button{min-width:96px}.seg button.on{background:var(--ac);color:#3a2300;box-shadow:0 4px 0 #b3541e}
 </style></head><body>
 <canvas id="g"></canvas>
 <div id="hud" class="hide"><div id="hudt"></div><div id="enw"><div id="enl">🍗 Thức ăn dự trữ</div><div id="enb"><i id="enf"></i></div></div></div><div id="lb" class="hide"></div><canvas id="mm" class="hide" width="120" height="120"></canvas>
@@ -55,6 +56,8 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
  <h1 class="logo"><svg class="lg" viewBox="0 0 64 60" aria-hidden="true"><path d="M8 28L10 4L28 15Z" fill="#ffb347" stroke="#b3541e" stroke-width="3" stroke-linejoin="round"/><path d="M56 28L54 4L36 15Z" fill="#ffb347" stroke="#b3541e" stroke-width="3" stroke-linejoin="round"/><path d="M13 22L14 10L22 16Z" fill="#ff9fb0"/><path d="M51 22L50 10L42 16Z" fill="#ff9fb0"/><ellipse cx="32" cy="35" rx="26" ry="21" fill="#ffb347" stroke="#b3541e" stroke-width="3"/><ellipse cx="22" cy="32" rx="4" ry="5" fill="#1b1b22"/><ellipse cx="42" cy="32" rx="4" ry="5" fill="#1b1b22"/><circle cx="23.4" cy="30" r="1.5" fill="#fff"/><circle cx="43.4" cy="30" r="1.5" fill="#fff"/><path d="M29 39h6l-3 3.4Z" fill="#ff8fa3"/><path d="M32 42.4Q28 47 24 44.5M32 42.4Q36 47 40 44.5" stroke="#1b1b22" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M14 38l-9-2M14 42l-9 3M50 38l9-2M50 42l9 3" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".85"/></svg><span>KHÁNH MIU</span></h1>
  <div>Ăn để lớn · lao vào mèo nhỏ hơn · đừng để mèo to nuốt!</div>
  <input type="text" id="nm" maxlength="12" placeholder="Tên của bạn">
+ <div class="row seg" id="difrow"><button class="sec" data-d="easy">EASY</button><button class="sec" data-d="normal">NORMAL</button><button class="sec" data-d="hard">HARD</button></div>
+ <div id="dh" class="note"></div>
  <div class="row"><button id="play">▶ START GAME</button><button class="sec" id="cust">🎨 CUSTOMIZE CAT</button></div>
  <div class="row"><input type="text" id="rm" maxlength="8" placeholder="Mã phòng"><button class="sec" id="rj">👥 VÀO PHÒNG</button><button class="sec" id="rn">➕ TẠO PHÒNG</button><button class="sec" id="off">🐾 CHƠI OFFLINE</button></div>
  <div class="row"><button class="sec" id="mm1">🎵 Music: ON</button><button class="sec" id="ms1">🔊 SFX: ON</button></div>
@@ -101,7 +104,8 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
     // ----- nuốt -----
     SWALLOW_WEIGHT_RATIO: 1.6,  // nặng hơn mục tiêu >= 1.6 lần mới nuốt được
     DASH_SWALLOW_RATIO: 1.4,    // khi đang lao (dash) ngưỡng hạ xuống 1.4 lần
-    REACH_BODY: .85, REACH_PREY: .15, LUNGE_REACH: .6, // tầm với = ra*(0.85 + 0.6 nếu đang lao) + rb*0.15
+    // Tầm nuốt = bán kính thân kẻ săn (+25% khi đang lao) + 30% bán kính mồi: chạm thân là nuốt, mồi bị phủ ~1/3 là đủ. (v2: 0.85/0.15 => phải gần như trùng tâm mới nuốt)
+    REACH_BODY: 1.0, REACH_PREY: .3, LUNGE_REACH: .25,
     SWALLOW_GAIN: .25,          // nuốt mồi tăng thêm 25% cân nặng mồi (qua công thức ăn)
     SWALLOW_DROP: .55,          // mồi để lại thức ăn tổng trị giá 55% cân nặng
     // ----- tốc độ / chạy nhanh -----
@@ -114,7 +118,7 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
     ENERGY_PER_V: 2,            // mỗi 1 giá trị thức ăn hồi 2 năng lượng (đủ để kéo dài, không đủ để chạy nhanh vô hạn)
     DASH_BURN_FRAC: .012, DASH_BURN_MIN: .12, // chạy nhanh đốt cân: max(0.12, 1.2%*kg) kg/giây
     // ----- bù độ trễ mạng (server) -----
-    LAG_MAX_MS: 300, INTERP_MS: 70
+    LAG_MAX_MS: 300, INTERP_MS: 100
   };
   const TAU = Math.PI * 2, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rad = kg => 12 + 3.2 * Math.sqrt(kg);
@@ -122,6 +126,7 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
   const newBody = (e, kg) => { e.kg = kg; e.en = CFG.ENERGY_MAX; e.tired = false; e.dashing = false; return e };
   // Chuyển động + chạy nhanh + hao cân + hồi năng lượng cho MỌI thực thể.
   function stepBody(e, dt, ta, wantDash) {
+    e.px = e.x; e.py = e.y; // vị trí đầu bước: dùng cho va chạm quét (swept) để chạy nhanh không xuyên qua mồi
     let da = ta - e.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); e.ang += clamp(da, -6 * dt, 6 * dt);
     const can = wantDash && !e.tired && e.en > 0 && e.kg > CFG.MIN_KG + .5;
     if (can) {
@@ -143,15 +148,25 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
   }
   const canSwallow = (a, b) => a.kg >= b.kg * (a.dashing ? CFG.DASH_SWALLOW_RATIO : CFG.SWALLOW_WEIGHT_RATIO);
   const reachOf = (a, bKg) => rad(a.kg) * (CFG.REACH_BODY + (a.dashing ? CFG.LUNGE_REACH : 0)) + rad(bKg) * CFG.REACH_PREY;
-  // Tìm các vụ nuốt hợp lệ trong 1 tick. posOf(a,b) cho phép server "tua lại" vị trí mục tiêu (bù trễ); mặc định vị trí hiện tại.
+  const teleport = (e, x, y) => { e.x = e.px = x; e.y = e.py = y };
+  // Khoảng cách NHỎ NHẤT giữa kẻ săn a và mồi t trong suốt 1 tick (cả hai di chuyển thẳng đều từ vị trí đầu tick tới cuối tick).
+  // Nhờ vậy chạy nhanh / chênh lệch vận tốc lớn vẫn không "xuyên qua" mồi giữa hai lần kiểm tra.
+  function sweptDist(a, t) {
+    const rx0 = t.x0 - (a.px === undefined ? a.x : a.px), ry0 = t.y0 - (a.py === undefined ? a.y : a.py), dx = (t.x1 - a.x) - rx0, dy = (t.y1 - a.y) - ry0, dd = dx * dx + dy * dy;
+    const s = dd > 1e-9 ? clamp(-(rx0 * dx + ry0 * dy) / dd, 0, 1) : 0; return Math.hypot(rx0 + dx * s, ry0 + dy * s);
+  }
+  const trackOf = b => ({ x0: b.px === undefined ? b.x : b.px, y0: b.py === undefined ? b.y : b.py, x1: b.x, y1: b.y });
+  // Tìm các vụ nuốt hợp lệ trong 1 tick. track(a,b) cho phép server "tua lại" quỹ đạo mục tiêu (bù trễ); mặc định quỹ đạo thật trong tick.
   // Mỗi mồi chỉ có tối đa 1 kẻ săn (kẻ ăn sâu nhất, hoà thì nặng hơn) => không thể 2 kẻ cùng nuốt 1 mục tiêu.
-  function findSwallows(list, posOf) {
+  function findSwallows(list, track) {
     const best = new Map();
     for (const a of list) {
       if (!a.alive) continue;
       for (const b of list) {
         if (a === b || !b.alive || !canSwallow(a, b)) continue;
-        const p = posOf ? posOf(a, b) : b, rc = reachOf(a, b.kg), d = Math.hypot(a.x - p.x, a.y - p.y);
+        const rc = reachOf(a, b.kg);
+        if (Math.abs(a.x - b.x) > rc + 600 && Math.abs(a.y - b.y) > rc + 600) continue; // loại nhanh các cặp ở rất xa
+        const d = sweptDist(a, (track && track(a, b)) || trackOf(b));
         if (d > rc) continue;
         const depth = d / rc, cur = best.get(b);
         if (!cur || depth < cur.depth || (depth === cur.depth && a.kg > cur.a.kg)) best.set(b, { a, b, depth });
@@ -162,27 +177,119 @@ input[type=range]{flex:1;accent-color:var(--ac);height:28px;min-width:0}
   // Thực hiện vụ nuốt (mutate). Trả về {gain, preyKg}. Người gọi lo hiệu ứng/thức ăn rơi.
   function applySwallow(a, b) { const preyKg = b.kg; b.alive = false; const gain = feed(a, preyKg * CFG.SWALLOW_GAIN); a.kills = (a.kills || 0) + 1; return { gain, preyKg } }
   const dropPlan = kg => { const n = Math.min(45, Math.max(4, kg / 2.2 | 0)); return { n, v: kg * CFG.SWALLOW_DROP / n + .4 } };
-  // AI bot (dùng chung server + offline). lists = [danh sách thức ăn, thức ăn rơi, pate]; mục nào có a===false thì bỏ qua.
-  // Bot dùng CÙNG ngưỡng nuốt với luật chiến đấu; chỉ chạy nhanh khi còn năng lượng (cùng luật với người chơi).
-  function think(b, dt, list, lists) {
-    const a = b.ai; a.t -= dt; if (a.t > 0) return; a.t = .25 + Math.random() * .25;
-    const r = rad(b.kg), W = CFG.W; let thr = null, prey = null, td = 520, pd = 420;
+  // ===== AI bot: 3 cấp độ khác nhau về HÀNH VI (không chỉ tăng tốc độ/cân nặng). Dùng chung server + offline. =====
+  // Công bằng: bot chỉ "thấy" mèo trong bán kính `sight` (nhỏ hơn khung nhìn của người chơi) và dùng đúng luật dash/năng lượng như người chơi.
+  const DIFF = {
+    easy:   { react: [.6, 1.0],  sight: 420, fleeDist: 230, fleeDash: false, huntBot: .35, huntHuman: .12, lead: 0,  dash: 'never', score: false, retreat: false, foodR: 600 },
+    normal: { react: [.25, .5],  sight: 520, fleeDist: 520, fleeDash: true,  huntBot: 1,   huntHuman: 1,   lead: .3, dash: 'near',  score: false, retreat: false, foodR: 700 },
+    hard:   { react: [.12, .22], sight: 650, fleeDist: 560, fleeDash: true,  huntBot: 1,   huntHuman: 1,   lead: -1, dash: 'lunge', score: true,  retreat: true,  foodR: 900 }
+  };
+  const DIF_NAMES = ['easy', 'normal', 'hard'];
+  // lists = [danh sách thức ăn, thức ăn rơi, pate]; mục nào có a===false thì bỏ qua. Trạng thái nhớ trong b.ai (mode, commit, ignore, retreat).
+  function think(b, dt, list, lists, dif) {
+    const D = DIFF[dif] || DIFF.normal, a = b.ai; a.clock = (a.clock || 0) + dt; a.t -= dt; if (a.t > 0) return;
+    a.t = D.react[0] + Math.random() * (D.react[1] - D.react[0]);
+    const r = rad(b.kg), W = CFG.W, hard = dif === 'hard', mySp = speedOf(b.kg, false), threatKg = b.kg * CFG.SWALLOW_WEIGHT_RATIO * (hard ? .8 : .85);
+    // 1) Quan sát trong tầm nhìn
+    let nT = null, nd = D.fleeDist, fx = 0, fy = 0; const threats = [], cands = [];
     for (const o of list) {
       if (o === b) continue;
-      const d = Math.hypot(o.x - b.x, o.y - b.y);
-      if (o.kg >= b.kg * CFG.SWALLOW_WEIGHT_RATIO * .85 && d < td) { thr = o; td = d } else if (canSwallow({ kg: b.kg, dashing: false }, o) && d < pd) { prey = o; pd = d }
+      const d = Math.hypot(o.x - b.x, o.y - b.y); if (d > D.sight) continue;
+      if (o.kg >= threatKg) { threats.push(o); if (d < D.fleeDist) { const w = (D.fleeDist - d + 50) / Math.max(d, 20); fx += (b.x - o.x) * w; fy += (b.y - o.y) * w; if (d < nd) { nd = d; nT = o } } }
+      else if (canSwallow({ kg: b.kg, dashing: false }, o)) cands.push({ o, d });
     }
-    a.dsh = false;
-    if (thr) { a.flee = true; a.tx = b.x - (thr.x - b.x); a.ty = b.y - (thr.y - b.y); a.dsh = td < r * 3.5 && !b.tired && b.en > 25; return }
-    a.flee = false;
-    if (prey) { a.tx = prey.x + (prey.vx || 0) * .3; a.ty = prey.y + (prey.vy || 0) * .3; a.dsh = pd < r * 4 && !b.tired && b.en > 40; return }
-    let bd = 700, bf = null;
+    // 2) Bỏ chạy
+    if (nT) {
+      a.mode = 'flee';
+      if (hard) { const m = 260; if (b.x < m) fx += (m - b.x) * 2; if (b.x > W - m) fx -= (b.x - (W - m)) * 2; if (b.y < m) fy += (m - b.y) * 2; if (b.y > W - m) fy -= (b.y - (W - m)) * 2 } // tránh bị dồn vào tường
+      const L = Math.hypot(fx, fy) || 1; a.tx = b.x + fx / L * 400; a.ty = b.y + fy / L * 400;
+      a.dsh = D.fleeDash && nd < r * (hard ? 5 : 3.5) && !b.tired && b.en > (hard ? 20 : 25); return;
+    }
+    // 3) Săn mồi
+    if (a.known === undefined) { a.known = {}; a.ignore = {}; a.n = 0 }
+    if (D.retreat && (b.tired || b.en < 18) && a.retreat === undefined) a.retreat = a.clock + 3;  // hard: hết sức thì rút lui, không đuổi tiếp
+    const retreating = D.retreat && a.retreat !== undefined && a.retreat > a.clock; if (a.retreat !== undefined && a.retreat <= a.clock) a.retreat = undefined;
+    let pick = null;
+    if (!retreating && cands.length) {
+      const ok = [];
+      for (const c of cands) {
+        const id = c.o.id; if (a.known[id] === undefined) { if (++a.n > 60) { a.known = {}; a.ignore = {}; a.n = 0 } a.known[id] = 1; if (Math.random() >= (c.o.bot ? D.huntBot : D.huntHuman)) a.ignore[id] = a.clock + 10 } // easy: thường lờ đi, nhất là người chơi
+        if ((a.ignore[id] || 0) > a.clock) continue; if ((b.tired || b.en < 25) && c.d > r * 3) continue; ok.push(c);
+      }
+      if (D.score) {  // hard: chọn mục tiêu theo giá trị, tránh mồi đang ở gần mèo lớn, ưu tiên mồi bị dồn sát tường, giữ mục tiêu một lúc
+        let bs = -1, cur = null;
+        for (const c of ok) {
+          const o = c.o; let danger = false; for (const t of threats) if (Math.hypot(t.x - o.x, t.y - o.y) < 320) { danger = true; break }
+          const cornered = o.x < 220 || o.x > W - 220 || o.y < 220 || o.y > W - 220;
+          const sc = o.kg * (o.bot ? 1 : 1.15) / (1 + c.d / 300) * (danger ? .15 : 1) * (cornered ? 1.5 : 1) * (mySp > speedOf(o.kg, false) * .97 ? 1.2 : 1);
+          if (o.id === a.commit) cur = { c, sc }; if (sc > bs) { bs = sc; pick = c }
+        }
+        if (cur && a.clock < a.commitUntil && cur.sc * 1.6 >= bs) pick = cur.c;
+        if (pick && pick.o.id !== a.commit) { a.commit = pick.o.id; a.commitUntil = a.clock + 3 }
+      } else { let bd = 1e9; for (const c of ok) if (c.d < bd) { bd = c.d; pick = c } }
+    }
+    if (pick) {
+      const o = pick.o, d = pick.d; a.mode = 'hunt';
+      const lead = D.lead >= 0 ? D.lead : Math.min(.8, d / Math.max(120, mySp * 1.75 - speedOf(o.kg, false) * .5)); // hard: ước lượng điểm chặn đầu
+      a.tx = o.x + (o.vx || 0) * lead; a.ty = o.y + (o.vy || 0) * lead;
+      a.dsh = D.dash === 'never' ? false : D.dash === 'near' ? (d < r * 4 && !b.tired && b.en > 40) : (d < r * 4.4 && !b.tired && b.en > 35); // hard: áp sát bằng tốc độ thường, chỉ lao khi đủ gần
+      return;
+    }
+    // 4) Tìm thức ăn / lang thang
+    a.mode = 'food'; a.dsh = false; let bd = D.foodR, bf = null;
     for (const L of lists) for (const f of L) { if (f.a === false) continue; const d = Math.abs(f.x - b.x) + Math.abs(f.y - b.y); if (d < bd) { bd = d; bf = f } }
     if (bf) { a.tx = bf.x; a.ty = bf.y } else if (Math.hypot(a.tx - b.x, a.ty - b.y) < 80 || !a.tx) { a.tx = 200 + Math.random() * (W - 400); a.ty = 200 + Math.random() * (W - 400) }
   }
-  return { CFG, think, TAU, clamp, rad, speedOf, newBody, stepBody, restEnergy, feed, canSwallow, reachOf, findSwallows, applySwallow, dropPlan };
+  // Hướng đi của bot: tới mục tiêu, trừ khi đang kiếm ăn/lang thang sát tường (khi đó quay về giữa bản đồ). Đang săn thì KHÔNG bị kéo đi => dồn được mồi vào tường.
+  function botHeading(b, dif) {
+    const a = b.ai, r = rad(b.kg), W = CFG.W; let ta = Math.atan2(a.ty - b.y, a.tx - b.x);
+    const nearWall = b.x < r + 120 || b.x > W - r - 120 || b.y < r + 120 || b.y > W - r - 120;
+    if (nearWall && a.mode !== 'hunt' && !(a.mode === 'flee' && dif === 'hard')) ta = Math.atan2(W / 2 - b.y, W / 2 - b.x);
+    return ta;
+  }
+  return { CFG, DIFF, DIF_NAMES, think, botHeading, teleport, sweptDist, TAU, clamp, rad, speedOf, newBody, stepBody, restEnergy, feed, canSwallow, reachOf, findSwallows, applySwallow, dropPlan };
 });
 /*RULES-END*/
+</script>
+<script>
+/*WIRE-BEGIN*/
+/* KHÁNH MIU — GIAO THỨC NHỊ PHÂN CHO SNAPSHOT (server + client + test dùng chung).
+ * Snapshot (gửi 20 lần/giây, chiếm gần hết băng thông) được nén từ ~780 byte JSON xuống ~190 byte. Sự kiện/meta/welcome vẫn là JSON văn bản.
+ * Khung: u8 type=1 | u16 tick | u8 số dòng | dòng*10 | u8 hasAck | [ack 10 byte]
+ * Dòng (10 byte): u16 id | u16 x | u16 y | u16 kg*10 | u8 góc(0..255 = 0..2π) | u8 cờ (bit0 = đang dash)
+ * Ack riêng từng người (10 byte): u32 mốc thời gian input của client | u16 tuổi input (ms) | u8 dự trữ | u8 cờ (bit0 = kiệt sức) | u16 số lần nuốt
+ * Cuối khung: u16 độ dài | JSON mảng sự kiện (UTF-8, dùng chung cho cả phòng) => mỗi client chỉ nhận 1 gói/tick (ít lời gọi hệ thống hơn hẳn)
+ * Sau khi sửa file này chạy:  node tools/sync-rules.js */
+(function (root, factory) { if (typeof module === 'object' && module.exports) module.exports = factory(); else root.KMWire = factory() })(this, function () {
+  'use strict';
+  const PROTO = 3, ROW = 10, TAU = Math.PI * 2, HEAD = 4;
+  const u16 = v => v < 0 ? 0 : v > 65535 ? 65535 : Math.round(v);
+  function packRow(v, o, id, x, y, kg, ang, dash) {
+    v.setUint16(o, id & 65535, true); v.setUint16(o + 2, u16(x), true); v.setUint16(o + 4, u16(y), true); v.setUint16(o + 6, u16(kg * 10), true);
+    v.setUint8(o + 8, Math.round((((ang % TAU) + TAU) % TAU) / TAU * 256) & 255); v.setUint8(o + 9, dash ? 1 : 0);
+  }
+  // block: Uint8Array chứa các dòng đã đóng gói sẵn (1 lần/tick, dùng chung cho mọi client); idx: danh sách dòng gửi cho client này.
+  function buildFrame(n, block, idx, ack, ev) {
+    const evLen = ev ? ev.length : 0, buf = new ArrayBuffer(HEAD + idx.length * ROW + 1 + (ack ? 10 : 0) + 2 + evLen), v = new DataView(buf), u = new Uint8Array(buf);
+    v.setUint8(0, 1); v.setUint16(1, n & 65535, true); v.setUint8(3, idx.length); let o = HEAD;
+    for (let i = 0; i < idx.length; i++) { const b = idx[i] * ROW; for (let j = 0; j < ROW; j++) u[o + j] = block[b + j]; o += ROW } // vòng thủ công: tránh tạo subarray cho từng dòng/từng client
+    if (ack) { v.setUint8(o++, 1); v.setUint32(o, ack.ct >>> 0, true); v.setUint16(o + 4, Math.min(65535, ack.age | 0), true); v.setUint8(o + 6, ack.en & 255); v.setUint8(o + 7, ack.tired ? 1 : 0); v.setUint16(o + 8, Math.min(65535, ack.kills | 0), true); o += 10 } else v.setUint8(o++, 0);
+    v.setUint16(o, evLen, true); if (evLen) u.set(ev, o + 2);
+    return buf;
+  }
+  function decodeSnap(buf) {
+    const v = new DataView(buf); if (v.byteLength < 5 || v.getUint8(0) !== 1) return null;
+    const n = v.getUint16(1, true), c = v.getUint8(3), rows = []; let o = HEAD;
+    if (v.byteLength < HEAD + c * ROW + 1) return null;
+    for (let i = 0; i < c; i++, o += ROW) rows.push([v.getUint16(o, true), v.getUint16(o + 2, true), v.getUint16(o + 4, true), v.getUint16(o + 6, true) / 10, v.getUint8(o + 8) * TAU / 256, v.getUint8(o + 9) & 1]);
+    let ack = null; const has = v.getUint8(o) === 1; o += 1;
+    if (has) { if (v.byteLength < o + 12) return null; ack = { ct: v.getUint32(o, true), age: v.getUint16(o + 4, true), en: v.getUint8(o + 6), tired: v.getUint8(o + 7) & 1, kills: v.getUint16(o + 8, true) }; o += 10 }
+    let ev = null; if (v.byteLength >= o + 2) { const len = v.getUint16(o, true); if (len && v.byteLength >= o + 2 + len) { try { ev = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, o + 2, len))) } catch (e) { ev = null } } }
+    return { n, rows, ack, ev };
+  }
+  return { PROTO, ROW, packRow, buildFrame, decodeSnap };
+});
+/*WIRE-END*/
 </script>
 <script>
 "use strict";
@@ -230,28 +337,50 @@ function drawCat(c,x,y,r,bi,col,ph,blink){const b=B[bi],w=b.w||1;c.save();c.tran
  c.strokeStyle='rgba(255,255,255,.8)';c.lineWidth=Math.max(1,r*.03);c.beginPath();for(const s of[-1,1]){c.moveTo(s*r*.3,r*.22);c.lineTo(s*r*.9,r*.12);c.moveTo(s*r*.3,r*.3);c.lineTo(s*r*.9,r*.35)}c.stroke();
  c.restore()}
 // ---------- state ----------
-const S={mode:'menu',breed:0,col:null,name:'',t:0,online:false,paused:false,room:'',pid:0,pt:3};
+const S={mode:'menu',breed:0,col:null,name:'',t:0,online:false,paused:false,dif:'normal',roomDif:'normal',room:'',pid:0,pt:3};
 let me=null,bots=[],food=[],drops=[],parts=[],pates=[],rings=[],peers={},shake=0,keys={},mouse={x:0,y:0,down:false,has:false},cam={x:W/2,y:W/2,z:1};
 function rng(seed){return()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 function genFood(){food.length=0;const r=rng(777);for(let i=0;i<NF;i++)food.push({x:80+r()*(W-160),y:80+r()*(W-160),v:r()<.12?3:1,a:true,t:0,h:r()*360})}genFood();
-const RL=KMRules,rad=RL.rad;
+const RL=KMRules,WR=KMWire,rad=RL.rad;
 function mk(bot,name){const bi=Math.random()*10|0;return RL.newBody({x:rnd(300,W-300),y:rnd(300,W-300),ang:rnd(0,TAU),bi:bot?bi:S.breed,col:bot?shade(B[bi].c,rnd(.8,1.1)):(S.col||B[S.breed].c),name,bot,alive:true,kills:0,ph:0,ai:{t:0,tx:0,ty:0,flee:false,dsh:false},id:Math.random(),bl:0,peak:0},bot?rnd(10,40):RL.CFG.SPAWN_KG)}
 function startGame(){S.online=false;S.paused=false;peers={};pates=[];rings=[];ghosts=[];floats=[];S.pt=3;genFood();me=mk(false,S.name||'Bạn');me.x=rnd(800,W-800);me.y=rnd(800,W-800);bots=[];for(let i=0;i<7;i++)bots.push(mk(true,NAMES[(Math.random()*NAMES.length)|0]));drops=[];parts=[];food.forEach(f=>f.a=true);cam.x=me.x;cam.y=me.y;showPlayUI();toast('Chế độ offline: chơi một mình với bot 🐾')}
 function toast(t){const e=$('toast');e.textContent=t;e.style.opacity=1;clearTimeout(toast.h);toast.h=setTimeout(()=>e.style.opacity=0,3500)}
 // ---------- particles ----------
 function burst(x,y,n,col,sp=120){for(let i=0;i<n;i++){const a=rnd(0,TAU),s=rnd(.3,1)*sp;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:rnd(.3,.7),c:col})}}
-function dropFood(x,y,m){const pl=RL.dropPlan(m),n=pl.n;for(let i=0;i<n;i++){const a=rnd(0,TAU),d=rnd(5,rad(m)*1.6);drops.push({x:clamp(x+Math.cos(a)*d,40,W-40),y:clamp(y+Math.sin(a)*d,40,W-40),v:pl.v,h:rnd(0,360),l:60})}}
+function dropFood(x,y,m){const pl=RL.dropPlan(m),n=pl.n;for(let i=0;i<n;i++){const a=rnd(0,TAU),d=rnd(5,rad(m)*1.6);drops.push({x:clamp(x+Math.cos(a)*d,40,W-40),y:clamp(y+Math.sin(a)*d,40,W-40),v:pl.v,h:rnd(0,360),l:60,i:(Math.random()*997)|0})}}
 // ---------- entities ----------
 function all(){const a=[me,...bots].filter(e=>e&&e.alive);for(const k in peers){const p=peers[k];if(p.alive)a.push(p)}return a}
 function die(e,killer){e.alive=false;shake=e===me?14:shake;if(e.bot){e.respawn=3}if(e!==me&&!e.bot)return;if(e===me){sfx('die');dropFood(e.x,e.y,e.kg);setTimeout(gameOver,900,killer)}}
 function addMass(e,v){const old=e.kg,g=RL.feed(e,v);if(e===me){if(e.kg>old&&((old/25)|0)!==((e.kg/25)|0))sfx('grow');gainFx(g)}return g}
-function think(b,dt){RL.think(b,dt,all(),[food,drops,pates])}
+function think(b,dt){RL.think(b,dt,all(),[food,drops,pates],S.dif)}
 function move(e,dt,ta,dash){RL.stepBody(e,dt,ta,dash);if(e===me&&e.dashing&&Math.random()<.08)sfx('dash');e.bl=(Math.random()<.004)?.15:Math.max(0,e.bl-dt)}
 function eatStuff(e,bot){const r=rad(e.kg);for(let i=0;i<food.length;i++){const f=food[i];if(f.a&&Math.abs(f.x-e.x)<r+8&&Math.abs(f.y-e.y)<r+8&&Math.hypot(f.x-e.x,f.y-e.y)<r+6){f.a=false;f.t=S.t+25;addMass(e,f.v);if(e===me){sfx('eat');burst(f.x,f.y,3,`hsl(${f.h},90%,65%)`,60)}}}
  for(let i=drops.length-1;i>=0;i--){const f=drops[i];if(Math.hypot(f.x-e.x,f.y-e.y)<r+8){drops.splice(i,1);addMass(e,f.v);if(e===me)sfx('loot')}}
  for(let i=pates.length-1;i>=0;i--){const p=pates[i];if(Math.hypot(p.x-e.x,p.y-e.y)<r+14){pates.splice(i,1);addMass(e,PATE_V);pateFx(p.x,p.y,e===me)}}}
 function fight(){for(const[a,b]of RL.findSwallows(all())){if(!a.alive||!b.alive)continue;const r=RL.applySwallow(a,b);dropFood(b.x,b.y,r.preyKg);swallowFx(a,b,r.gain);if(b===me)die(me,a);else if(b.bot)b.respawn=3}}
 function respawnBots(dt){bots.forEach((b,i)=>{if(!b.alive){b.respawn-=dt;if(b.respawn<=0)bots[i]=mk(true,NAMES[(Math.random()*NAMES.length)|0])}})}
+// ---------- CÁ: thức ăn dạng cá nhỏ. Sprite dựng sẵn 1 lần (màu x cỡ x hướng x vẫy đuôi x kiểu) rồi chỉ drawImage => rẻ hơn vẽ path mỗi khung ----------
+const fishCache=new Map(),FISH_HUES=12;
+function fishSprite(hb,big,ai,frame,kind){const key=(((hb*2+big)*8+ai)*2+frame)*3+kind;let c=fishCache.get(key);if(c)return c;
+ const L=big?46:29,N=Math.ceil(L*1.45)+2,cv=document.createElement('canvas');cv.width=cv.height=N;const x=cv.getContext('2d');x.translate(N/2,N/2);const a=ai*TAU/8;x.rotate(a);if(Math.cos(a)<-.01)x.scale(1,-1);
+ const hue=hb*30+8,body=`hsl(${hue},82%,58%)`,dark=`hsl(${hue},70%,38%)`,belly=`hsl(${hue},92%,84%)`,w=frame?L*.1:-L*.1;
+ x.lineJoin='round';x.fillStyle=dark;x.beginPath();x.moveTo(-L*.2,0);x.lineTo(-L*.5,-L*.22+w);x.lineTo(-L*.46,w*.4);x.lineTo(-L*.5,L*.22+w);x.closePath();x.fill();            // đuôi chẻ, vẫy
+ x.beginPath();x.moveTo(-L*.08,-L*.17);x.quadraticCurveTo(L*.02,-L*.4,L*.2,-L*.16);x.closePath();x.fill();                                                                   // vây lưng
+ x.fillStyle=body;x.beginPath();x.ellipse(L*.06,0,L*.37,L*.21,0,0,TAU);x.fill();                                                                                                // thân
+ x.fillStyle=belly;x.beginPath();x.ellipse(L*.08,L*.08,L*.29,L*.09,0,0,TAU);x.fill();                                                                                           // bụng sáng
+ if(kind===1){x.strokeStyle=dark;x.lineWidth=Math.max(1.3,L*.06);for(const o of[-.12,.03,.18]){x.beginPath();x.moveTo(L*o,-L*.17);x.lineTo(L*o+L*.03,L*.12);x.stroke()}}                  // kiểu sọc
+ else if(kind===2){x.fillStyle=dark;for(const[px,py]of[[-.1,-.05],[.05,.06],[.16,-.07],[-.02,.1]]){x.beginPath();x.arc(L*px,L*py,L*.035,0,TAU);x.fill()}}                          // kiểu đốm
+ x.fillStyle='#fff';x.beginPath();x.arc(L*.27,-L*.04,L*.07,0,TAU);x.fill();x.fillStyle='#1b1b22';x.beginPath();x.arc(L*.29,-L*.04,L*.038,0,TAU);x.fill();                      // mắt
+ x.strokeStyle='rgba(0,0,0,.35)';x.lineWidth=1.1;x.beginPath();x.ellipse(L*.06,0,L*.37,L*.21,0,0,TAU);x.stroke();fishCache.set(key,cv);return cv}
+function drawFish(f,i,pn,drop){const fr=((pn/330+i*.37)|0)&1;let sp=fr?f.s1:f.s0;
+ if(!sp){const hb=((f.h/30)|0)%FISH_HUES,big=f.v>1&&!drop?1:0,ai=(i*5+(i>>3))&7,kind=i%3;sp=fishSprite(hb,big,ai,fr,kind);if(fr)f.s1=sp;else f.s0=sp} // tham chiếu sprite lưu sẵn trên từng cá: khỏi tính lại chỉ số mỗi khung
+ const bob=Math.sin(pn/500+i)*1.6,sz=drop?sp.width*.85:sp.width;
+ if(drop){g.globalAlpha=.22+.14*Math.sin(pn/160+i);g.fillStyle='#fff';g.beginPath();g.arc(f.x,f.y+bob,sz*.52,0,TAU);g.fill();g.globalAlpha=1}
+ g.drawImage(sp,f.x-sz/2,f.y+bob-sz/2,sz,sz)}
+// ---------- độ khó ----------
+const DIF_TXT={easy:['EASY','Bot ít săn bạn, phản ứng chậm, ưu tiên kiếm cá, chỉ thấy gần.'],normal:['NORMAL','Bot kiếm cá, săn mèo nhỏ, tránh mèo lớn, biết đuổi và bỏ chạy.'],hard:['HARD','Bot chọn mục tiêu, chặn đầu, chỉ lao khi đủ gần, rút lui khi hết sức, tránh bị dồn vào góc.']};
+const difLabel=d=>(DIF_TXT[d]||DIF_TXT.normal)[0];
+function setDif(d){if(!DIF_TXT[d])return;S.dif=d;try{localStorage.setItem('khanhmiu.dif',d)}catch(e){}document.querySelectorAll('#difrow button').forEach(b=>b.classList.toggle('on',b.dataset.d===d));$('dh').textContent=DIF_TXT[d][1]+(S.online?'':' (Phòng đã tạo thì dùng độ khó của người tạo.)')}
 // ---------- helpers ----------
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function showPlayUI(){S.mode='play';['menu','cz','go','st'].forEach(i=>$(i).classList.add('hide'));['hud','lb','mm','snd','gear'].forEach(i=>$(i).classList.remove('hide'));if('ontouchstart'in window)$('dash').classList.remove('hide');ac();music();sfx('start');sfx('spawn')}
@@ -292,7 +421,7 @@ function updEnergy(){if(!me)return;const w=$('enw');$('enf').style.width=clamp(m
 // GitHub Pages chỉ chứa frontend: điền địa chỉ backend vào CFG.server (xem README), ví dụ 'wss://khanh-miu.onrender.com'.
 // Nếu index.html được chính server Node phục vụ thì không cần điền gì.
 const CFG={server:''},DEFAULT_ROOM='PUBLIC';
-let ws=null,net={id:0,pid:'',meta:{},tries:0,lastSend:0,leaving:false,traj:[]},wakeTok=0;
+let ws=null,net={id:0,pid:'',meta:{},tries:0,lastSend:0,leaving:false,traj:[],nAbs:0,off:null,jit:0,evq:[],rtt:0,lastPing:0,lastAng:0,lastDash:0,lastPs:0},wakeTok=0;
 function srvBase(){const q=new URLSearchParams(location.search).get('server');if(q)return q.replace(/\/+$/,'');if(CFG.server)return CFG.server.replace(/\/+$/,'');if(/^https?:$/.test(location.protocol)&&!/\.github\.io$/.test(location.hostname))return location.origin;return''}
 const wsUrl=()=>srvBase().replace(/^http/,'ws'),httpUrl=()=>srvBase().replace(/^ws/,'http');
 function getPid(){let p='';try{p=sessionStorage.getItem('km.pid')||''}catch(e){}if(!/^[a-f0-9]{24}$/.test(p)){p=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');try{sessionStorage.setItem('km.pid',p)}catch(e){}}return p}
@@ -316,9 +445,9 @@ async function playOnline(room){S.name=$('nm').value.trim();ac();
  if(!ok){btns(false);setNet('🔴 Không kết nối được server. Thử lại hoặc chơi offline.','#ff9d9d');return}
  net.leaving=false;net.tries=0;net.pid=getPid();openWs()}
 function openWs(){let sock;try{sock=new WebSocket(wsUrl())}catch(e){btns(false);setNet('🔴 Địa chỉ server không hợp lệ','#ff9d9d');return}
- ws=sock;
- sock.onopen=()=>{net.tries=0;sock.send(JSON.stringify({t:'join',v:2,room:S.room,pid:net.pid,name:S.name||'Bạn',bi:S.breed,col:S.col||B[S.breed].c,sp:S.mode==='over'?0:1}))};
- sock.onmessage=ev=>{let m;try{m=JSON.parse(ev.data)}catch(e){return}onMsg(m)};
+ sock.binaryType='arraybuffer';ws=sock;
+ sock.onopen=()=>{net.tries=0;sock.send(JSON.stringify({t:'join',v:WR.PROTO,room:S.room,pid:net.pid,name:S.name||'Bạn',bi:S.breed,col:S.col||B[S.breed].c,dif:S.dif,sp:S.mode==='over'?0:1}))};
+ sock.onmessage=ev=>{if(typeof ev.data!=='string'){onBin(ev.data);return}let m;try{m=JSON.parse(ev.data)}catch(e){return}onMsg(m)};
  sock.onclose=()=>{if(ws!==sock)return;ws=null;onClose()};sock.onerror=()=>{}}
 function onClose(){if(net.leaving)return;
  if(!S.online){btns(false);setNet('🔴 Mất kết nối tới server. Thử lại hoặc chơi offline.','#ff9d9d');return}
@@ -327,37 +456,42 @@ function onClose(){if(net.leaving)return;
  $('conn').textContent=`⚠ Mất kết nối — đang kết nối lại (${net.tries})…`;
  setTimeout(()=>{if(!net.leaving&&S.online&&!ws)openWs()},Math.min(4000,700*net.tries))}
 function onMsg(m){switch(m.t){
- case 'welcome':if(m.v!==2){net.leaving=true;btns(false);setNet('🔴 Server đang chạy phiên bản cũ — hãy deploy lại backend (xem README)','#ff9d9d');try{ws.close()}catch(e){}ws=null;return}return onWelcome(m);
+ case 'welcome':if(m.v!==WR.PROTO){net.leaving=true;btns(false);setNet('🔴 Server đang chạy phiên bản cũ — hãy deploy lại backend (xem README)','#ff9d9d');try{ws.close()}catch(e){}ws=null;return}return onWelcome(m);
  case 'meta':net.meta=m.ents;return;
- case 's':if(S.online)onSnap(m);return;
+ case 'pg':{const r=performance.now()-m.c;if(r>=0&&r<5000)net.rtt=net.rtt?net.rtt*.7+r*.3:r;return}
  case 'spawned':return onSpawned(m);
  case 'err':net.leaving=true;btns(false);setNet('🔴 '+(m.msg||'Lỗi'),'#ff9d9d');try{ws.close()}catch(e){}ws=null;return}}
 const newMe=y=>{net.traj.length=0;return{x:y[0],y:y[1],kg:y[2],en:y[3],tired:false,ang:rnd(0,TAU),vx:0,vy:0,bi:S.breed,col:S.col||B[S.breed].c,name:S.name||'Bạn',bot:false,alive:true,kills:0,ph:0,dashing:false,id:net.id,bl:0,peak:y[2]}};
-function onWelcome(m){net.id=m.id;net.meta=m.meta;S.room=m.room;
+function onWelcome(m){net.id=m.id;net.meta=m.meta;S.room=m.room;S.roomDif=m.dif||'normal';net.nAbs=m.n||0;net.off=null;net.jit=0;net.evq=[];
  food.length=0;const f=m.food;for(let i=0;i<f.length;i+=4)food.push({x:f[i],y:f[i+1],v:f[i+2],h:f[i+3],a:true,t:0});for(const i of m.off)if(food[i])food[i].a=false;
  drops=m.drops.map(d=>({id:d[0],x:d[1],y:d[2],v:d[3],h:d[4],l:60}));pates=m.pates.map(p=>({id:p[0],x:p[1],y:p[2]}));
  peers={};bots=[];parts=[];rings=[];S.online=true;net.tries=0;$('conn').classList.add('hide');btns(false);
  if(m.you){me=newMe(m.you);cam.x=me.x;cam.y=me.y;if(S.mode!=='play'&&S.mode!=='over')showPlayUI()}
- toast(`🏠 Phòng ${m.room} · ${m.n} người chơi · gửi link cho bạn bè!`)}
+ if(!m.resync)toast(`🏠 Phòng ${m.room} · ${difLabel(S.roomDif)} · ${m.players} người chơi`+(S.roomDif!==S.dif?` (phòng này đã đặt độ khó ${difLabel(S.roomDif)})`:''))}
 function onSpawned(m){me=newMe(m.you);cam.x=me.x;cam.y=me.y;S.paused=false;showPlayUI()}
 function respawnOnline(){if(ws&&ws.readyState===1)ws.send(JSON.stringify({t:'spawn',name:S.name||'Bạn',bi:S.breed,col:S.col||B[S.breed].c}));else toast('Đang kết nối lại…')}
-function reconcile(sm,ak){const sx=sm[1],sy=sm[2],T=ak[1]+ak[2],tr=net.traj;let px=null,py=null;
- if(ak[1]>0&&tr.length>1&&T>=tr[0].t&&T<=tr[tr.length-1].t){let i=tr.length-1;while(i>0&&tr[i-1].t>T)i--;const a=tr[Math.max(0,i-1)],b=tr[i],f=b.t>a.t?(T-a.t)/(b.t-a.t):0;px=a.x+(b.x-a.x)*f;py=a.y+(b.y-a.y)*f}
+function reconcile(sm,ak){const sx=sm[1],sy=sm[2],T=ak.ct+ak.age,tr=net.traj;let px=null,py=null;
+ if(ak.ct>0&&tr.length>1&&T>=tr[0].t&&T<=tr[tr.length-1].t){let i=tr.length-1;while(i>0&&tr[i-1].t>T)i--;const a=tr[Math.max(0,i-1)],b=tr[i],f=b.t>a.t?(T-a.t)/(b.t-a.t):0;px=a.x+(b.x-a.x)*f;py=a.y+(b.y-a.y)*f}
  if(px===null){if(Math.hypot(sx-me.x,sy-me.y)>300){me.x=sx;me.y=sy;tr.length=0}return}
  const dx=sx-px,dy=sy-py,d=Math.hypot(dx,dy); // so với vị trí CỦA CHÍNH MÌNH tại thời điểm server xử lý input => không còn lệch do độ trễ
  if(d>250){me.x=sx;me.y=sy;tr.length=0}else if(d>12){const k=(d-12)*.35/d;me.x+=dx*k;me.y+=dy*k;for(const p of tr){p.x+=dx*k;p.y+=dy*k}}}
-function onSnap(m){const seen={};let sm=null;
- for(const a of m.p){const id=a[0];
-  if(id===net.id){if(me&&me.alive){me.kg=a[3];me.kills=a[6];sm=a}continue}
+const unwrapN=n=>{const d=(n-(net.nAbs&65535)+65536)&65535;if(d>0&&d<32768)net.nAbs+=d;return net.nAbs};
+function onBin(buf){if(!S.online)return;const d=WR.decodeSnap(buf);if(!d)return;const recv=performance.now(),T=unwrapN(d.n)*50,est=recv-T;
+ if(net.off===null)net.off=est;else{net.jit=net.jit*.95+Math.abs(est-net.off)*.05;net.off=Math.min(net.off+.2,est)} // đồng hồ server: lấy độ trễ tốt nhất gần đây (min filter) => gói đến dồn cục không làm giật
+ let sm=null;
+ for(const a of d.rows){const id=a[0];
+  if(id===net.id){if(me&&me.alive){me.kg=a[3];sm=a}continue}
   const mt=net.meta[id];if(!mt)continue;
-  let o=peers[id];if(!o)o=peers[id]={id,x:a[1],y:a[2],vx:0,vy:0,ph:0,bl:0,alive:true};
-  o.tx=a[1];o.ty=a[2];o.kg=a[3];o.ang=a[4];o.dashing=!!a[5];o.kills=a[6];o.name=mt[0];o.bi=mt[1];o.col=mt[2];o.bot=!!mt[3];o.peer=mt[3]?0:id;seen[id]=1}
- for(const ev of m.e)onEv(ev); // xử lý sự kiện TRƯỚC khi xoá mèo vắng mặt: sự kiện nuốt cần tên/màu/vị trí của nạn nhân
- for(const k in peers)if(!seen[k])delete peers[k];
- for(const ak of m.k)if(ak[0]===net.id&&me&&me.alive&&sm){me.en=ak[3];me.tired=!!ak[4];reconcile(sm,ak)}}
+  let o=peers[id];if(!o)o=peers[id]={id,x:a[1],y:a[2],vx:0,vy:0,ph:0,bl:0,alive:true,buf:[],kg:a[3],ang:a[4],kills:0};
+  o.name=mt[0];o.bi=mt[1];o.col=mt[2];o.bot=!!mt[3];o.peer=mt[3]?0:id;o.ls=recv;const b=o.buf;b.push({t:T,x:a[1],y:a[2],kg:a[3],ang:a[4],dash:a[5]});if(b.length>10)b.shift()}
+ if(d.ev)for(const ev of d.ev)schedEv(ev,T);
+ if(d.ack&&me&&me.alive&&sm){me.en=d.ack.en;me.tired=!!d.ack.tired;me.kills=d.ack.kills;reconcile(sm,d.ack)}}
+// Sự kiện của người khác được hẹn giờ theo giờ server để khớp với vị trí nội suy đang hiển thị; sự kiện liên quan tới mình áp dụng ngay.
+function schedEv(ev,T){const t=ev[0],mine=(t==='f-'||t==='d-'||t==='p-')?ev[2]===net.id:t==='k'?(ev[1]===net.id||ev[2]===net.id):false;if(mine)onEv(ev);else net.evq.push({T,ev})}
+function runEvq(rt){const q=net.evq;if(q.length>600){for(const e of q)onEv(e.ev);q.length=0;return}let i=0;while(i<q.length&&q[i].T<=rt){onEv(q[i].ev);i++}if(i)q.splice(0,i)}
 const feedGain=v=>me?RL.feed({kg:me.kg,en:0,tired:false},v):0;
 function onEv(ev){switch(ev[0]){
- case 'f-':{const f=food[ev[1]];if(f){f.a=false;if(ev[2]===net.id&&me){sfx('eat');burst(f.x,f.y,3,`hsl(${f.h},90%,65%)`,60);gainFx(feedGain(f.v))}}break}
+ case 'f-':{const f=food[ev[1]];if(f){const pred=f.pa;f.a=false;f.pa=0;if(ev[2]===net.id&&me){if(!pred){sfx('eat');burst(f.x,f.y,3,`hsl(${f.h},90%,65%)`,60)}gainFx(feedGain(f.v))}}break}
  case 'f+':if(food[ev[1]])food[ev[1]].a=true;break;
  case 'd+':drops.push({id:ev[1],x:ev[2],y:ev[3],v:ev[4],h:ev[5],l:60});break;
  case 'd-':{const i=drops.findIndex(d=>d.id===ev[1]);if(i>=0){if(ev[2]===net.id){sfx('loot');gainFx(feedGain(drops[i].v))}drops.splice(i,1)}break}
@@ -367,14 +501,24 @@ function onEv(ev){switch(ev[0]){
   swallowFx(a,v,ev[6]);
   if(vid===net.id){if(me&&me.alive){me.alive=false;shake=14;sfx('die');closeSettings();setTimeout(gameOver,900,{name:ev[5]})}}else delete peers[vid];break}
  case 'j':if(ev[2]!==net.id)toast((ev[1]||'Một mèo')+' vừa vào đấu trường! 🐾');break;
- case 'l':toast((ev[1]||'Một mèo')+' đã rời phòng');break}}
-function smoothPeers(dt){const k=Math.min(1,dt*14);for(const id in peers){const o=peers[id],sp=215*Math.pow(rad(o.kg)/14,-.22)*(o.dashing?1.75:1),mv=Math.hypot(o.tx-o.x,o.ty-o.y)>1.5;o.x+=(o.tx-o.x)*k;o.y+=(o.ty-o.y)*k;o.vx=Math.cos(o.ang)*sp;o.vy=Math.sin(o.ang)*sp;if(mv)o.ph+=dt*sp/22;o.bl=Math.random()<.004?.15:Math.max(0,o.bl-dt)}}
+ case 'l':toast((ev[1]||'Một mèo')+' đã rời phòng');delete peers[ev[2]];break}}
+function updatePeers(now,dt){if(net.off===null)return;const rt=now-net.off-(100+Math.min(100,net.jit*1.5));net.rt=rt;runEvq(rt);
+ for(const id in peers){const o=peers[id],b=o.buf;if(!b.length)continue;if(now-o.ls>2500){delete peers[id];continue}
+  let k=-1;for(let j=b.length-1;j>=0;j--)if(b[j].t<=rt){k=j;break}
+  let x,y,kg,ang,dash,vx,vy;
+  if(k<0){const a=b[0];x=a.x;y=a.y;kg=a.kg;ang=a.ang;dash=a.dash;vx=vy=0}
+  else if(k<b.length-1){const a=b[k],c=b[k+1],f=(rt-a.t)/(c.t-a.t),sec=(c.t-a.t)/1000;x=a.x+(c.x-a.x)*f;y=a.y+(c.y-a.y)*f;kg=a.kg+(c.kg-a.kg)*f;let da=c.ang-a.ang;da=Math.atan2(Math.sin(da),Math.cos(da));ang=a.ang+da*f;dash=a.dash;vx=(c.x-a.x)/sec;vy=(c.y-a.y)/sec}
+  else{const a=b[k],p=b[k-1];vx=vy=0;if(p){const sec=(a.t-p.t)/1000;vx=(a.x-p.x)/sec;vy=(a.y-p.y)/sec}const ex=Math.min(rt-a.t,200)/1000;x=clamp(a.x+vx*ex,0,W);y=clamp(a.y+vy*ex,0,W);kg=a.kg;ang=a.ang;dash=a.dash} // gói trễ: ngoại suy tối đa 200ms rồi giữ nguyên
+  const mv=Math.hypot(x-o.x,y-o.y)>.3;o.x=x;o.y=y;o.kg=kg;o.ang=ang;o.dashing=!!dash;o.vx=vx;o.vy=vy;if(mv)o.ph+=dt*RL.speedOf(kg,dash)/22;o.bl=Math.random()<.004?.15:Math.max(0,o.bl-dt)}}
 function sendIn(a,d,i,c){if(ws&&ws.readyState===1)ws.send(JSON.stringify({t:'in',a:+a.toFixed(3),d:d?1:0,i:i?1:0,c:Math.round(c||performance.now())}))}
 function netTick(dt,now,ta,dsh){const live=ws&&ws.readyState===1;
- if(!S.paused&&live){move(me,dt,ta,dsh);const tr=net.traj;tr.push({t:now,x:me.x,y:me.y});while(tr.length>2&&tr[0].t<now-2500)tr.shift()}
- if(now-net.lastSend>50){net.lastSend=now;sendIn(S.paused?me.ang:ta,S.paused?0:dsh,S.paused,now)}}
+ if(!S.paused&&live){move(me,dt,ta,dsh);const tr=net.traj;tr.push({t:now,x:me.x,y:me.y});while(tr.length>2&&tr[0].t<now-2500)tr.shift();
+  const r=rad(me.kg)+6;for(const f of food){if(!f.a||f.pa)continue;if(Math.abs(f.x-me.x)<r&&Math.abs(f.y-me.y)<r&&Math.hypot(f.x-me.x,f.y-me.y)<r){f.pa=now;sfx('eat');burst(f.x,f.y,3,`hsl(${f.h},90%,65%)`,60)}}} // ăn cá "dự đoán": cá biến mất ngay khi chạm, server xác nhận sau; không xác nhận trong 0.9s thì cá hiện lại
+ const ang=S.paused?me.ang:ta,d=S.paused?0:(dsh?1:0),ps=S.paused?1:0,dA=Math.abs(Math.atan2(Math.sin(ang-net.lastAng),Math.cos(ang-net.lastAng))),changed=dA>.06||d!==net.lastDash||ps!==net.lastPs;
+ if((changed&&now-net.lastSend>=30)||now-net.lastSend>=100){net.lastSend=now;net.lastAng=ang;net.lastDash=d;net.lastPs=ps;sendIn(ang,d,ps,now)} // chỉ gửi khi đổi hướng/dash (tối thiểu 30ms), còn lại nhịp tim 100ms
+ if(now-net.lastPing>2000){net.lastPing=now;if(ws&&ws.readyState===1)ws.send(JSON.stringify({t:'pg',c:performance.now()}))}}
 function netLeave(){net.leaving=true;if(ws){const s=ws;ws=null;try{s.send(JSON.stringify({t:'leave'}))}catch(e){}try{s.close()}catch(e){}}}
-function toMenu(){sfx('click');$('toast').style.opacity=0;const was=S.online;if(was)netLeave();wakeTok++;S.online=false;S.paused=false;S.mode='menu';me=null;peers={};drops=[];pates=[];rings=[];ghosts=[];floats=[];genFood();
+function toMenu(){sfx('click');$('toast').style.opacity=0;const was=S.online;if(was)netLeave();wakeTok++;S.online=false;S.paused=false;S.mode='menu';me=null;peers={};drops=[];pates=[];rings=[];ghosts=[];floats=[];genFood();S.roomDif=S.dif;
  if(was){bots=[];for(let i=0;i<7;i++)bots.push(mk(true,NAMES[i]))}
  ['go','st','conn'].forEach(i=>$(i).classList.add('hide'));$('menu').classList.remove('hide');['hud','lb','mm','snd','dash','gear'].forEach(i=>$(i).classList.add('hide'));btns(false);initMenuNet()}
 // ---------- settings trong gameplay ----------
@@ -396,7 +540,7 @@ $('off').onclick=()=>{S.name=$('nm').value.trim();ac();wakeTok++;btns(false);sta
 function rank(){const l=board();return l.findIndex(x=>x.me)+1}
 function board(){return all().map(e=>({n:e.name,s:e.kg,me:e===me})).sort((x,y)=>y.s-x.s)}
 function gameOver(k){if(S.mode!=='play')return;S.mode='over';const pk=Math.max(me.peak||0,me.kg),prev=best;best=Math.max(best,pk);try{localStorage.setItem('khanhmiu.best',best)}catch(e){}$('gos').innerHTML=`Bị nuốt bởi <b>${esc(k&&k.name||'?')}</b><br>Cân nặng cao nhất: <b>${fmtKg(pk)}</b> (kỷ lục ${fmtKg(best)})${pk>prev+.05?' 🎉':''}<br>Đã nuốt: <b>${me.kills}</b> mèo · Hạng: <b>#${S.lastRank||'-'}</b>`;$('go').classList.remove('hide');['dash'].forEach(i=>$(i).classList.add('hide'))}
-function hud(){const l=board(),r=l.findIndex(x=>x.me)+1;S.lastRank=r;$('hudt').innerHTML=me?`⚖ Cân nặng: <b>${fmtKg(me.kg)}</b><br>⚔ Đã nuốt: <b>${me.kills}</b><br>🏆 Hạng: <b>#${r||'-'}</b>/${l.length}${S.online?`<br>🏠 ${esc(S.room)}`:''}`:'';updEnergy();$('lb').innerHTML='<b>🏆 Bảng xếp hạng (kg)</b>'+l.slice(0,6).map((x,i)=>`<div class="${x.me?'me':''}"><span>${i+1}. ${esc(x.n)}</span><span>${fmtKg(x.s)}</span></div>`).join('')}
+function hud(){const l=board(),r=l.findIndex(x=>x.me)+1;S.lastRank=r;$('hudt').innerHTML=me?`⚖ Cân nặng: <b>${fmtKg(me.kg)}</b><br>⚔ Đã nuốt: <b>${me.kills}</b><br>🏆 Hạng: <b>#${r||'-'}</b>/${l.length}${S.online?`<br>🏠 ${esc(S.room)} · ${difLabel(S.roomDif)}<br>📶 ${net.rtt?Math.round(net.rtt)+' ms':'…'}`:`<br>🎚 ${difLabel(S.dif)}`}`:'';updEnergy();$('lb').innerHTML='<b>🏆 Bảng xếp hạng (kg)</b>'+l.slice(0,6).map((x,i)=>`<div class="${x.me?'me':''}"><span>${i+1}. ${esc(x.n)}</span><span>${fmtKg(x.s)}</span></div>`).join('')}
 // ---------- customize ----------
 const pv=$('pv').getContext('2d');let pt=0;
 function renderChips(){$('chips').innerHTML='';B.forEach((b,i)=>{const e=document.createElement('div');e.className='chip'+(i===S.breed?' on':'');e.textContent=b.n;e.onclick=()=>{S.breed=i;S.col=null;$('col').value=b.c;renderChips();sfx('click')};$('chips').appendChild(e)})}
@@ -413,11 +557,11 @@ cv.addEventListener('pointermove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;mouse.
 function resize(){const d=Math.min(devicePixelRatio||1,2);cv.width=innerWidth*d;cv.height=innerHeight*d;g.setTransform(d,0,0,d,0,0)}addEventListener('resize',resize);resize();
 // ---------- loop ----------
 let last=performance.now(),stepT=0;
-function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(S.paused&&!S.online&&S.mode==='play'){draw();requestAnimationFrame(frame);return}S.t+=dt;if(S.online)smoothPeers(dt);
+function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(S.paused&&!S.online&&S.mode==='play'){draw();requestAnimationFrame(frame);return}S.t+=dt;if(S.online)updatePeers(now,dt);
  if(S.mode==='play'&&me&&me.alive){let ta=me.ang;const kx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),ky=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);if(kx||ky){ta=Math.atan2(ky,kx);mouse.has=false}else if(mouse.has)ta=Math.atan2(mouse.y-innerHeight/2,mouse.x-innerWidth/2);
   const dsh=keys[' ']||keys.dash||mouse.down;if(S.online)netTick(dt,now,ta,dsh);else{move(me,dt,ta,dsh);eatStuff(me)}stepT+=dt;if(stepT>.28){stepT=0;if(!S.paused)sfx('step')}
   if(dsh&&!me.tired&&me.en>0&&!me._d)sfx('atk');if(dsh&&me.tired&&now-(S.tt||0)>1800){S.tt=now;sfx('nope');toast('🍗 Hết thức ăn dự trữ! Ăn thêm để chạy nhanh')}me._d=dsh;me.peak=Math.max(me.peak||0,me.kg);
-  bots.forEach(b=>{if(!b.alive)return;think(b,dt);const m=Math.hypot(b.x-b.ai.tx,b.y-b.ai.ty);let ta2=Math.atan2(b.ai.ty-b.y,b.ai.tx-b.x);const r=rad(b.kg);if(b.x<r+120||b.x>W-r-120||b.y<r+120||b.y>W-r-120)ta2=Math.atan2(W/2-b.y,W/2-b.x);move(b,dt,ta2,b.ai.dsh);eatStuff(b)});
+  bots.forEach(b=>{if(!b.alive)return;think(b,dt);const m=Math.hypot(b.x-b.ai.tx,b.y-b.ai.ty);move(b,dt,RL.botHeading(b,S.dif),b.ai.dsh);eatStuff(b)});
   if(!S.online){fight();respawnBots(dt);offlinePate(dt);food.forEach(f=>{if(!f.a&&S.t>f.t)f.a=true});for(let i=drops.length-1;i>=0;i--){drops[i].l-=dt;if(drops[i].l<=0)drops.splice(i,1)}}
   cam.x+=(me.x-cam.x)*Math.min(1,dt*8);cam.y+=(me.y-cam.y)*Math.min(1,dt*8);const tz=clamp(1.2-Math.sqrt(rad(me.dk||me.kg))*.055,.42,1.1);cam.z+=(tz-cam.z)*Math.min(1,dt*2);
   if(((now/250)|0)!==S.hh){S.hh=(now/250)|0;hud()}}
@@ -428,9 +572,9 @@ function draw(){const w=innerWidth,h=innerHeight;g.fillStyle='#2f6b4f';g.fillRec
  g.fillStyle='#3a8060';g.fillRect(0,0,W,W);g.strokeStyle='rgba(255,255,255,.06)';g.lineWidth=2;g.beginPath();for(let x=Math.max(0,Math.floor(vx0/100)*100);x<Math.min(W,vx1);x+=100){g.moveTo(x,Math.max(0,vy0));g.lineTo(x,Math.min(W,vy1))}for(let y=Math.max(0,Math.floor(vy0/100)*100);y<Math.min(W,vy1);y+=100){g.moveTo(Math.max(0,vx0),y);g.lineTo(Math.min(W,vx1),y)}g.stroke();
  g.fillStyle='rgba(255,255,255,.05)';for(let i=0;i<40;i++){const x=(i*977)%W,y=(i*1531)%W;if(x>vx0&&x<vx1&&y>vy0&&y<vy1){g.beginPath();g.arc(x,y,60+(i%5)*20,0,TAU);g.fill()}}
  g.strokeStyle='#ff6b6b';g.lineWidth=12;g.strokeRect(0,0,W,W);
- for(const f of food){if(!f.a||f.x<vx0||f.x>vx1||f.y<vy0||f.y>vy1)continue;g.fillStyle=`hsl(${f.h},85%,62%)`;g.beginPath();g.arc(f.x,f.y,f.v>1?9:5.5,0,TAU);g.fill()}
+ const PNOW=performance.now();for(let i=0;i<food.length;i++){const f=food[i];if(!f.a||f.x<vx0||f.x>vx1||f.y<vy0||f.y>vy1||(f.pa&&PNOW-f.pa<900))continue;drawFish(f,i,PNOW,false)}
  for(const p of pates){if(p.x<vx0||p.x>vx1||p.y<vy0||p.y>vy1)continue;drawPate(p)}
- for(const f of drops){if(f.x<vx0||f.x>vx1||f.y<vy0||f.y>vy1)continue;const p=.6+.4*Math.sin(S.t*8+f.h);g.fillStyle=`hsla(${f.h},95%,70%,${p})`;g.shadowColor='#fff';g.shadowBlur=14;g.beginPath();g.arc(f.x,f.y,8,0,TAU);g.fill();g.shadowBlur=0}
+ for(const f of drops){if(f.x<vx0||f.x>vx1||f.y<vy0||f.y>vy1)continue;drawFish(f,(f.id||f.i||0)+((f.h/7)|0),PNOW,true)}
  const L=all().sort((a,b)=>a.kg-b.kg),vis=L.reduce((n,e)=>n+(e.x>vx0&&e.x<vx1&&e.y>vy0&&e.y<vy1?1:0),0);g.textAlign='center';g.font='bold 14px Trebuchet MS';
  for(const e of L){if(e.x<vx0-100||e.x>vx1+100||e.y<vy0-100||e.y>vy1+100)continue;const r=rad(e.dk||e.kg)*(1+(e.gulp>0?.16*Math.sin(Math.PI*clamp(e.gulp/.35,0,1)):0));g.fillStyle='rgba(0,0,0,.2)';g.beginPath();g.ellipse(e.x,e.y+r*1.0,r*.9,r*.3,0,0,TAU);g.fill();
   if(e.dashing){g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=3;g.beginPath();g.moveTo(e.x-e.vx*.08,e.y-e.vy*.08);g.lineTo(e.x-e.vx*.2,e.y-e.vy*.2);g.stroke()}
@@ -442,5 +586,5 @@ function draw(){const w=innerWidth,h=innerHeight;g.fillStyle='#2f6b4f';g.fillRec
 // peers drawn through all(); mark peers
 const _all=all;all=function(){const a=_all();a.forEach(e=>{if(e.peer===undefined)return});return a};
 for(let i=0;i<7;i++)bots.push(mk(true,NAMES[i]));
-loadAud();setSnd();initMenuNet();prevLoop();requestAnimationFrame(frame);
+loadAud();setSnd();try{setDif(localStorage.getItem('khanhmiu.dif')||'normal')}catch(e){setDif('normal')}document.querySelectorAll('#difrow button').forEach(b=>b.onclick=()=>{sfx('click');setDif(b.dataset.d)});initMenuNet();prevLoop();requestAnimationFrame(frame);
 </script></body></html>

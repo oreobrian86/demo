@@ -8,19 +8,10 @@ const srv = start(0), port = () => srv.server.address().port, sleep = ms => new 
 const hex = () => Array.from({ length: 24 }, () => '0123456789abcdef'[Math.random() * 16 | 0]).join('');
 let n = 0; const ok = m => { n++; console.log('  ✔', m) };
 const tickMs = []; const _t = Room.prototype.tick; Room.prototype.tick = function (...a) { const t0 = process.hrtime.bigint(); const r = _t.apply(this, a); tickMs.push(Number(process.hrtime.bigint() - t0) / 1e6); return r };
-function client(name, room) {
-  const c = { name, events: [], snap: null, ack: null, bytes: 0, errors: [] };
-  c.connect = () => new Promise(res => { c.ws = new WebSocket('ws://localhost:' + port()); c.ws.on('open', () => c.ws.send(JSON.stringify({ t: 'join', v: 2, room, pid: hex(), name, bi: 1, col: '#ff8800' })));
-    c.ws.on('message', d => { c.bytes += d.length; const m = JSON.parse(d); if (m.t === 'welcome') { c.id = m.id; res(c) } if (m.t === 'meta') c.meta = m.ents;
-      if (m.t === 's') { c.snap = m; c.ack = m.k.find(a => a[0] === c.id) || c.ack; for (const e of m.e) c.events.push(e) } });
-    c.ws.on('close', () => { c.closed = true }) });
-  c.in = (a, d = 0, i = 0) => c.ws.send(JSON.stringify({ t: 'in', a, d, i, c: Date.now() }));
-  c.me = id => c.snap && c.snap.p.find(a => a[0] === (id || c.id));
-  c.kills = () => c.events.filter(e => e[0] === 'k'); return c;
-}
+const { makeClient } = require('./lib/wsclient'); const client = (name, room) => makeClient(port(), name, room);
 const setup = async (code, names) => { const cs = []; for (const nm of names) cs.push(await client(nm, code).connect()); await sleep(120); const room = srv.rooms.get(code);
   room.bots.forEach(b => { b.alive = false; b.respawn = 9999 }); const P = cs.map(c => room.players.get(c.id)); P.forEach(p => p.inp.i = 1); return { cs, room, P } };
-const place = (e, kg, x, y) => { e.kg = kg; e.x = x; e.y = y; e.en = 100; e.tired = false };
+const place = (e, kg, x, y) => { R.teleport(e, x, y); e.kg = kg; e.en = 100; e.tired = false };
 const clearEv = cs => cs.forEach(c => c.events.length = 0);
 
 (async () => {
@@ -51,14 +42,14 @@ const clearEv = cs => cs.forEach(c => c.events.length = 0);
     ok(`mục tiêu chỉ bị nuốt 1 lần và chỉ 1 kẻ săn được tính lượt nuốt + thưởng cân (${w === A.id ? 'A' : 'B'}); mục tiêu biến mất ở cả 3 client`); }
   console.log('7. Chạy nhanh tiêu hao thức ăn, hết thì bị hạn chế, ăn thì hồi');
   { const { cs: [A], room, P: [pa] } = await setup('C7', ['A']); room.food.forEach(f => { f.a = false; f.t = 1e9 }); place(pa, 40, 500, 2000); pa.ang = 0; pa.inp.i = 0; const log = []; const iv = setInterval(() => A.in(0, 1), 40); let last = null;
-    for (let s = 0; s < 14; s++) { await sleep(1000); const m = A.me(); log.push({ x: m[1], kg: m[3], dash: m[5], en: A.ack[3], tired: A.ack[4] }); if (m[1] > 3800) { pa.x = 500; pa.en = pa.en } }
+    for (let s = 0; s < 14; s++) { await sleep(1000); const m = A.me(); log.push({ x: m[1], kg: m[3], dash: m[5], en: A.ack[3], tired: A.ack[4] }); if (m[1] > 3800) { R.teleport(pa, 500, pa.y) } }
     clearInterval(iv); const en = log.map(l => l.en); assert(en[0] < 100 && Math.min(...en) <= 6 && log.some(l => l.tired === 1)); assert(log[0].dash === 1 && log[log.length - 1].dash === 0);
     ok('dash giữ liên tục: thanh thức ăn ' + en.slice(0, 12).join('→') + ' (hết thì tự ngừng chạy nhanh)');
     const kgs = log.map(l => l.kg); assert(kgs[0] < 40 && kgs[kgs.length - 1] < kgs[0] && kgs.every(k => k >= R.CFG.MIN_KG)); ok('cân nặng giảm khi chạy nhanh: ' + kgs[0] + ' kg → ' + kgs[kgs.length - 1] + ' kg (sàn ' + R.CFG.MIN_KG + ')');
-    A.in(0, 0); await sleep(3000); const e1 = A.ack[3]; pa.en = 8; pa.tired = true; pa.x = 700; pa.y = 700; room.food.forEach(f => f.a = false); const f = room.food[0]; f.a = true; f.t = 0; f.x = pa.x + 3; f.y = pa.y; f.v = 3; pa.inp.i = 1; await sleep(300); assert(A.ack[3] >= 8 + 3 * R.CFG.ENERGY_PER_V - 2 && A.ack[4] === 0); ok('ăn 1 thức ăn (giá trị 3): năng lượng 8 → ' + A.ack[3] + ' và hết trạng thái kiệt sức'); }
+    A.in(0, 0); await sleep(3000); const e1 = A.ack[3]; pa.en = 8; pa.tired = true; R.teleport(pa, 700, 700); room.food.forEach(f => f.a = false); const f = room.food[0]; f.a = true; f.t = 0; f.x = pa.x + 3; f.y = pa.y; f.v = 3; pa.inp.i = 1; await sleep(300); assert(A.ack[3] >= 8 + 3 * R.CFG.ENERGY_PER_V - 2 && A.ack[4] === 0); ok('ăn 1 thức ăn (giá trị 3): năng lượng 8 → ' + A.ack[3] + ' và hết trạng thái kiệt sức'); }
   console.log('8. Chống gửi dữ liệu giả');
   { const { cs: [A, B], room, P: [pa, pb] } = await setup('C8', ['A', 'B']); place(pa, 12, 1000, 1000); place(pb, 60, 3000, 3000); const kg0 = pa.kg;
-    const bad = [{ t: 'in', a: 'x', d: 1, i: 0, c: 'bad' }, { t: 'in', a: 1e999, d: 'yes', i: [], kg: 9999 }, { t: 'kill', target: B.id }, { t: 'swallow', a: A.id, b: B.id }, { t: 'set', kg: 500, en: 999 }, { t: 'spawn', name: '<img onerror=1>', kg: 500 }, [1, 2, 3], 'str', 42, null, { t: 'join', v: 2, room: 'C8', pid: hex(), name: 'dup' }];
+    const bad = [{ t: 'in', a: 'x', d: 1, i: 0, c: 'bad' }, { t: 'in', a: 1e999, d: 'yes', i: [], kg: 9999 }, { t: 'kill', target: B.id }, { t: 'swallow', a: A.id, b: B.id }, { t: 'set', kg: 500, en: 999 }, { t: 'spawn', name: '<img onerror=1>', kg: 500 }, [1, 2, 3], 'str', 42, null, { t: 'join', v: 3, room: 'C8', pid: hex(), name: 'dup' }];
     for (const m of bad) A.ws.send(JSON.stringify(m)); A.ws.send(Buffer.from([0, 255, 3, 9])); A.ws.send('{bad json'); await sleep(400);
     assert(pa.kg <= kg0 + 0.01 && pb.alive && pb.kg >= 59 && A.snap && !A.closed); assert(Number.isFinite(pa.inp.a)); ok('thông điệp kill/swallow/set kg/NaN/JSON hỏng/nhị phân đều bị bỏ qua: cân nặng & trạng thái không đổi, server vẫn chạy');
     A.ws.send('x'.repeat(5000)); await sleep(300); assert(A.closed); ok('khung dữ liệu quá lớn (5KB) bị ngắt kết nối');
@@ -73,6 +64,11 @@ const clearEv = cs => cs.forEach(c => c.events.length = 0);
     const back = room.rewind(B, 270); assert(Math.abs(B.x - A.x) > reach && Math.abs(back.x - A.x) < reach);
     A.rtt = 0; room.fight(); assert(!room.ev.some(e => e[0] === 'k')); ok(`RTT 0ms: B cách ${(B.x - A.x).toFixed(0)}px (tầm ${reach.toFixed(0)}px) => trượt`);
     A.rtt = 200; room.fight(); assert(room.ev.some(e => e[0] === 'k' && e[1] === A.id && e[2] === B.id)); ok(`RTT 200ms (bù ${R.CFG.INTERP_MS + 200}ms): cùng vị trí hiện tại nhưng B ${B.x - back.x > 0 ? (B.x - back.x).toFixed(0) : 0}px phía trước so với màn hình A nhìn thấy => trúng`);
+    // Dịch chuyển/hồi sinh: lịch sử cũ ở ngay cạnh kẻ săn nhưng mục tiêu hiện tại ở xa 600px => KHÔNG được nuốt (trước đây có thể nuốt phantom)
+    { const rm = new Room('TP'); rm.bots.forEach(b => { b.alive = false; b.respawn = 9e9 }); const X = rm.addPlayer('e'.repeat(24), fake, { name: 'X', bi: 0, col: '#fff' }, true), Y = rm.addPlayer('f'.repeat(24), fake, { name: 'Y', bi: 0, col: '#fff' }, true); let t = 3e6; place(X, 60, 1000, 1000); place(Y, 40, 1030, 1000); // Y 40kg: chưa đủ nhẹ để bị nuốt, lịch sử vị trí sát X được ghi lại
+      for (let i = 0; i < 6; i++) { t += 50; X.inp = { a: 0, d: 0, i: 1, at: t, ct: 0 }; Y.inp = { a: 0, d: 0, i: 1, at: t, ct: 0 }; rm.step(.05, t) } rm.ev = []; // lịch sử: Y ở sát X
+      // (tránh kill thật ở các tick trên) đặt lại rồi dịch chuyển Y đi xa, giữ nguyên lịch sử cũ
+      place(Y, 12, 1600, 1000); X.rtt = 200; rm.fight(); assert(!rm.ev.some(e => e[0] === 'k'), 'phantom kill sau dịch chuyển'); ok('bù trễ có chặn: mục tiêu vừa dịch chuyển đi 600px không thể bị nuốt bằng vị trí cũ trong lịch sử'); }
     const C = room.addPlayer('c'.repeat(24), fake, { name: 'C', bi: 0, col: '#fff' }, true); place(C, 5, 3000, 3000); C.ang = 0; A.rtt = 9999; const L = room.lagOf(A); assert(L === R.CFG.LAG_MAX_MS); ok(`RTT khai khống/quá lớn bị chặn ở ${R.CFG.LAG_MAX_MS}ms; RTT do SERVER đo bằng ping/pong nên client không tự khai được`); }
   console.log('10. Nhiều người chơi cùng lúc (tải)');
   { const N = 11, cs = []; for (let i = 0; i < N; i++) cs.push(await client('P' + i, 'LOAD').connect()); const room = srv.rooms.get('LOAD'); assert.strictEqual(room.humans(), N); tickMs.length = 0; const t0 = Date.now(); cs.forEach(c => c.bytes = 0);

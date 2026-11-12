@@ -1,16 +1,16 @@
 'use strict';
 // E2E: 2 tiến trình Chromium độc lập (profile riêng) nạp game thật và chơi qua WebSocket tới server thật.
 process.env.MAX_CONN_PER_IP = '100';
-const assert = require('assert'), { chromium } = require('playwright');
+const RT = require('../shared/rules').teleport, assert = require('assert'), { chromium } = require('playwright');
 const { start } = require('../server/server');
-const SHOTS = process.env.SHOTS || '/home/claude/shots';
+const SHOTS = process.env.SHOTS || require('path').join(require('os').tmpdir(), 'km-shots'); require('fs').mkdirSync(SHOTS, { recursive: true });
 const srv = start(0), URL = 'http://localhost:' + srv.server.address().port + '/?room=E2E';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let n = 0; const ok = m => { n++; console.log('  ✔', m) };
 async function open(name) {
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 900, height: 600 } });
   const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
-  await page.goto(URL); await page.fill('#nm', name); await page.click('#play');
+  await page.goto(URL); await page.fill('#nm', name); await page.click('#difrow [data-d=easy]'); await page.click('#play'); // Easy: mèo 10kg đi thẳng hàng phút không bị bot làm nhiễu bài test
   await page.waitForFunction(() => S.online && me && me.alive, null, { timeout: 15000 });
   return { browser, page, errs, name };
 }
@@ -41,7 +41,8 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
 
   // chơi thật: để Alice tự đuổi theo hạt gần nhất cho tới khi ăn được
   await autopilot(A.page, 'food'); await A.page.waitForFunction(() => me.kg > 10.5, null, { timeout: 40000 }); await autopilot(A.page, null);
-  await sleep(600); a = await st(A.page); b = await st(B.page);
+  await A.page.evaluate(() => { S.paused = true }); await sleep(900); a = await st(A.page); b = await st(B.page); // Alice đứng yên: sự kiện của người khác được hẹn giờ theo giờ server nên cần chờ vài trăm ms để hai màn hình khớp
+  await A.page.evaluate(() => { S.paused = false }); // bật lại điều khiển cho các phần sau
   assert(a.me.kg > 10.5, 'Alice ăn hạt'); const sym = a.eaten.filter(i => !b.eaten.includes(i)).concat(b.eaten.filter(i => !a.eaten.includes(i)));
   assert(a.eaten.length > 0 && sym.length <= 2); ok(`Alice ăn hạt (size 10 -> ${a.me.kg.toFixed(1)}); danh sách hạt đã biến mất: A=${a.eaten.length}, B=${b.eaten.length}, khác nhau ${sym.length}`);
   const [la, lb2] = await Promise.all([st(A.page), st(B.page)]).then(r => r.map(x => new Map(x.lb))); // đọc đồng thời
@@ -49,11 +50,13 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   assert(names.length >= 4 && maxDiff <= 40); ok(`Bảng xếp hạng thống nhất: ${names.length} mèo có mặt ở cả hai bảng, điểm chênh tối đa ${maxDiff} (do hai lần đọc lệch vài ms)`);
 
   console.log('E2E: PATE');
+  if (await A.page.evaluate(() => !me.alive)) { await A.page.click('#rs'); await A.page.waitForFunction(() => S.mode === 'play' && me.alive, null, { timeout: 8000 }) } // bot (nay tầm nuốt rộng hơn) có thể đã nuốt Alice 10kg trong lúc test chạy
   const room = srv.rooms.get('E2E'); const pl = [...room.players.values()].find(p => p.name === 'Alice');
+  await B.page.evaluate(() => { S.paused = true }); { const bo = [...room.players.values()].find(p => p.name === 'Bob'); RT(bo, 150, 150) } // Bob đứng yên ở góc xa: không ăn mất pate, không bị Alice đi ngang
   room.bots.forEach(x => { x.alive = false; x.respawn = 9999 });
   const m0 = pl.kg; const px = pl.x + 700 > 4000 ? pl.x - 700 : pl.x + 700, py = pl.y; room.spawnPate(px, py); await sleep(500);
   a = await st(A.page); b = await st(B.page); assert(a.pates.length === 1 && b.pates.length === 1 && a.pates[0][1] === b.pates[0][1]); ok('Pate xuất hiện ở cùng vị trí trong cả hai trình duyệt: ' + a.pates[0].slice(1));
-  pl.x = px - 40; pl.y = py; // đặt Alice ngay cạnh để ảnh chụp thấy nhãn PATE
+  RT(pl, px - 40, py); // đặt Alice ngay cạnh để ảnh chụp thấy nhãn PATE
   await sleep(150); const pateId = a.pates[0][0];
   await A.page.evaluate(() => { cam.x = me.x; cam.y = me.y }); await sleep(100);
   await A.page.screenshot({ path: SHOTS + '/pate_near.png' });
@@ -61,9 +64,10 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   await B.page.waitForFunction(() => pates.length === 0, null, { timeout: 15000 });
   await autopilot(A.page, null); await sleep(300); a = await st(A.page); b = await st(B.page);
   assert(a.pates.length === 0 && b.pates.length === 0 && a.me.kg > m0 + 5); ok(`Alice ăn pate: biến mất ở cả hai, size ${m0.toFixed(1)} -> ${a.me.kg.toFixed(1)} (server xác nhận)`);
+  await B.page.evaluate(() => { S.paused = false });
 
   console.log('E2E: Settings (mở khi đang online)');
-  { const al = [...room.players.values()].find(p => p.name === 'Alice'), bo = [...room.players.values()].find(p => p.name === 'Bob'); bo.x = al.x > 2100 ? 300 : 3900; bo.y = al.y > 2100 ? 300 : 3900 } // tránh Alice (đang to hơn) vô tình ăn Bob
+  { const al = [...room.players.values()].find(p => p.name === 'Alice'), bo = [...room.players.values()].find(p => p.name === 'Bob'); RT(bo, al.x > 2100 ? 300 : 3900, al.y > 2100 ? 300 : 3900) } // tránh Alice (đang to hơn) vô tình ăn Bob
   await A.page.click('#gear'); await sleep(300);
   const p0 = (await st(A.page)); assert(p0.paused); await A.page.screenshot({ path: SHOTS + '/settings.png' });
   const bot0 = (await st(B.page)).me; await sleep(1500); const p1 = await st(A.page), b1 = await st(B.page);
@@ -81,7 +85,7 @@ const autopilot = (page, what) => page.evaluate(w => { clearInterval(window.__ap
   await A.page.click('#play'); await A.page.waitForFunction(() => S.online && me && me.alive, null, { timeout: 15000 }); await sleep(600);
   const ra = [...room.players.values()].find(p => p.name === 'Alice'), rb = [...room.players.values()].find(p => p.name === 'Bob');
   for (const pg of [A.page, B.page]) await pg.evaluate(() => { window.__d = []; const o = onEv; onEv = function (ev) { if (ev[0] === 'd+') __d.push(ev.slice(1, 4)); return o(ev) } });
-  ra.kg = 70; ra.x = 2000; ra.y = 2000; rb.kg = 12; rb.x = 2000; rb.y = 2000; ra.ws && (ra.inp.i = 1); // sắp đặt tiền điều kiện; việc ăn/kill do server xử lý
+  ra.kg = 70; RT(ra, 2000, 2000); rb.kg = 12; RT(rb, 2000, 2000); ra.ws && (ra.inp.i = 1); // sắp đặt tiền điều kiện; việc ăn/kill do server xử lý
   await B.page.waitForFunction(() => !$('go').classList.contains('hide'), null, { timeout: 8000 }); await sleep(300);
   const go = await B.page.evaluate(() => $('gos').textContent); assert(/Alice/.test(go)); ok('Bob bị Alice hạ: màn Game Over hiện "' + go.slice(0, 40) + '…"');
   const [dA, dB] = await Promise.all([A.page, B.page].map(pg => pg.evaluate(() => __d)));

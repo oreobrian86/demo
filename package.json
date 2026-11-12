@@ -1,14 +1,15 @@
 {
   "name": "khanh-miu",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "KHÁNH MIU — game mèo ăn hạt multiplayer (Node.js + WebSocket), v2: cân nặng kg, nuốt đối thủ, chạy nhanh tiêu hao thức ăn",
+  "description": "KHÁNH MIU — game mèo ăn cá multiplayer (Node.js + WebSocket), v3: tối ưu băng thông, độ khó Easy/Normal/Hard, nuốt chính xác, cá thay hạt",
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
     "sync-rules": "node tools/sync-rules.js",
-    "test": "node test/rules-test.js && node test/server-test.js && node test/combat-test.js && node test/soak.js 20",
-    "test:browser": "node test/e2e.js && node test/e2e-combat.js && node test/offline-and-cross-origin.js"
+    "test": "node test/rules-test.js && node test/ai-test.js && node test/server-test.js && node test/combat-test.js && node test/slow-client-test.js && node test/soak.js 20",
+    "test:browser": "node test/e2e.js && node test/e2e-combat.js && node test/e2e-v3.js && node test/offline-and-cross-origin.js",
+    "bench": "node test/perf-bench.js . 3 local 40 12 1"
   },
   "engines": {
     "node": ">=18"

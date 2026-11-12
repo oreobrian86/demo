@@ -10,12 +10,12 @@ const stat = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 't
   const b = await chromium.launch(); const errs = [];
   // --- offline
   let pg = await (await b.newContext({ viewport: { width: 900, height: 600 } })).newPage(); pg.on('pageerror', e => errs.push(e.message));
-  await pg.goto(`http://localhost:${SP}/`); await pg.click('#off'); await sleep(500);
+  await pg.goto(`http://localhost:${SP}/`); await pg.click('#off'); await sleep(500); await pg.evaluate(() => { me.kg = 60 }); // đủ nặng để bot (Normal) không nuốt được trong lúc test chờ
   let s = await pg.evaluate(() => ({ online: S.online, bots: bots.length, mode: S.mode, food: food.length })); assert(!s.online && s.bots === 7 && s.mode === 'play'); ok('Offline: 7 bot cục bộ, không dùng mạng');
   await pg.mouse.move(800, 300); await sleep(1200); await pg.click('#gear'); const x0 = await pg.evaluate(() => [me.x, me.y, bots[0].x, bots[0].y, S.t]); await sleep(1000);
   const x1 = await pg.evaluate(() => [me.x, me.y, bots[0].x, bots[0].y, S.t]); assert(x0.every((v, i) => v === x1[i])); ok('Offline + Settings: toàn bộ game tạm dừng (mèo, bot, đồng hồ đều đứng yên)');
   await pg.click('#resume'); await sleep(600); const x2 = await pg.evaluate(() => [me.x, S.t]); assert(x2[1] > x1[4]); ok('Offline: Resume chạy tiếp');
-  await pg.evaluate(() => { pates.push({ id: 99, x: me.x + 20, y: me.y, l: 50 }); }); const m0 = await pg.evaluate(() => me.kg); await sleep(500);
+  const m0 = await pg.evaluate(() => { const k = me.kg; pates.push({ id: 99, x: me.x + 20, y: me.y, l: 50 }); return k }); await sleep(500); // đọc mốc cùng lúc thả pate (pate bị ăn ngay khung hình kế tiếp)
   const m1 = await pg.evaluate(() => ({ m: me.kg, p: pates.length })); assert(m1.m > m0 + 5 && m1.p === 0); ok(`Offline: ăn pate tăng size ${m0.toFixed(1)} -> ${m1.m.toFixed(1)}`);
   await pg.click('#gear'); await pg.click('#tomenu'); await sleep(300); assert(await pg.evaluate(() => S.mode === 'menu' && bots.length === 7)); ok('Offline: Return to Main Menu');
   // --- cross-origin (GitHub Pages giả lập)
